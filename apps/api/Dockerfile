@@ -17,13 +17,9 @@ FROM node:20-slim
 WORKDIR /app
 ENV NODE_ENV=production
 RUN apt-get update && apt-get install -y openssl ca-certificates && rm -rf /var/lib/apt/lists/*
-COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/packages/shared/dist ./packages/shared/dist
-COPY --from=build /app/packages/shared/package.json ./packages/shared/
-COPY --from=build /app/apps/api/dist ./apps/api/dist
-COPY --from=build /app/apps/api/package.json ./apps/api/
-COPY --from=build /app/apps/api/prisma ./apps/api/prisma
+# Kopiujemy cały zbudowany workspace (root package.json, node_modules, dist, prisma).
+COPY --from=build /app ./
 EXPOSE 3000
-# Migracja schematu + seed (idempotentny). Błędy nie zatrzymują startu serwera,
-# żeby /api/health zawsze odpowiadało (łatwiejsza diagnostyka niż crash-loop).
-CMD sh -c "npm run db:push -w @sep/api || echo 'UWAGA: db:push nieudane'; npm run db:seed -w @sep/api || echo 'UWAGA: seed nieudany'; node apps/api/dist/main.js"
+# Migracja + seed (idempotentny). Błędy nie zatrzymują serwera → /api/health zawsze odpowiada.
+# Entry serwera: dist/src/main.js (nest zagnieżdża pod src/).
+CMD sh -c "npm run db:push -w @sep/api || echo 'UWAGA: db:push nieudane'; npm run db:seed -w @sep/api || echo 'UWAGA: seed nieudany'; node apps/api/dist/src/main.js"
