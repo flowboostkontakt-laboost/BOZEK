@@ -1,0 +1,51 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Instalacja zależności
+        run: npm install --ignore-scripts
+
+      - name: Build web (z adresem API)
+        env:
+          VITE_API_URL: https://bozek-api.onrender.com
+        run: |
+          npm run build -w @sep/shared
+          npm run build -w @sep/web
+
+      - name: Capacitor sync (Android)
+        working-directory: apps/web
+        run: npx cap sync android
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Budowa APK (debug)
+        working-directory: apps/web/android
+        run: |
+          chmod +x ./gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Publikacja pliku APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Ewidencja-APK
+          path: apps/web/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
