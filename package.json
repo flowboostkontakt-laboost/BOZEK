@@ -1,0 +1,24 @@
+{
+  "name": "system-ewidencji-produkcji",
+  "version": "0.1.0",
+  "private": true,
+  "description": "System Ewidencji Produkcji i Norm Pracy — Handmade Micro-Workshop (Wariant A)",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:api": "npm run start:dev -w @sep/api",
+    "dev:web": "npm run dev -w @sep/web",
+    "preview:web": "npm run preview -w @sep/web",
+    "build": "npm run build -w @sep/shared && npm run build -w @sep/api && npm run build -w @sep/web",
+    "db:push": "npm run db:push -w @sep/api",
+    "db:seed": "npm run db:seed -w @sep/api",
+    "test": "npm run test -w @sep/shared",
+    "db:up": "docker compose up -d db",
+    "db:down": "docker compose down"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

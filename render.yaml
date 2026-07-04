@@ -1,0 +1,54 @@
+# Blueprint wdrożenia (Render.com) — baza + API + PWA jednym plikiem.
+# Na Render: New → Blueprint → wskaż to repo → Apply.
+databases:
+  - name: sep-db
+    plan: free
+    postgresMajorVersion: "16"
+
+services:
+  # ─── Backend API (NestJS, Docker) ───────────────────────────────
+  - type: web
+    name: sep-api
+    runtime: docker
+    dockerfilePath: ./apps/api/Dockerfile
+    dockerContext: .
+    plan: free
+    region: frankfurt
+    healthCheckPath: /api/health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: sep-db
+          property: connectionString
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: PORT
+        value: "3000"
+      - key: WEB_ORIGIN
+        value: https://sep-web.onrender.com
+      - key: AUTO_LOGOUT_HOUR
+        value: "18"
+      - key: TZ
+        value: Europe/Warsaw
+      - key: AI_PROVIDER
+        value: local
+      - key: PRESTASHOP_API_URL
+        sync: false # uzupełnij w panelu Render (lub zostaw — sync po prostu nie zadziała)
+      - key: PRESTASHOP_API_KEY
+        sync: false
+
+  # ─── Frontend PWA (statyczny) ───────────────────────────────────
+  - type: web
+    name: sep-web
+    runtime: static
+    buildCommand: npm install && npm run build -w @sep/shared && npm run build -w @sep/web
+    staticPublishPath: ./apps/web/dist
+    envVars:
+      - key: VITE_API_URL
+        value: https://sep-api.onrender.com/api
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html

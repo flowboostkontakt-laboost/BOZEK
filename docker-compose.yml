@@ -1,0 +1,57 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: sep-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: sep
+      POSTGRES_PASSWORD: sep
+      POSTGRES_DB: sep
+      TZ: Europe/Warsaw
+    ports:
+      - "5432:5432"
+    volumes:
+      - sep-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sep -d sep"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Panel administratora do podglądu bazy w trakcie developmentu
+  adminer:
+    image: adminer:4
+    container_name: sep-adminer
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    depends_on:
+      - db
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: "postgresql://sep:sep@db:5432/sep?schema=public"
+      PORT: "3000"
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "80:80"
+
+volumes:
+  sep-db-data:

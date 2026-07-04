@@ -1,0 +1,45 @@
+import { useEffect, useState } from "react";
+
+// W produkcji front i backend są na osobnych domenach → VITE_API_URL=https://twoj-api/api
+// W dev używamy proxy Vite (/api → localhost:3000).
+const BASE = import.meta.env.VITE_API_URL ?? "/api";
+
+export function getToken(): string | null {
+  return localStorage.getItem("accessToken");
+}
+
+/** Pobiera dane z API, a gdy backend niedostępny — zwraca fallback (fixture). */
+export function useApiData<T>(path: string, fallback: T): [T, (v: T) => void] {
+  const [data, setData] = useState<T>(fallback);
+  useEffect(() => {
+    let alive = true;
+    apiGet<T>(path)
+      .then((d) => alive && setData(d))
+      .catch(() => void 0);
+    return () => {
+      alive = false;
+    };
+  }, [path]);
+  return [data, setData];
+}
+
+function authHeaders(): HeadersInit {
+  const t = getToken();
+  return t ? { Authorization: `Bearer ${t}` } : {};
+}
+
+export async function apiGet<T>(path: string): Promise<T> {
+  const res = await fetch(BASE + path, { headers: authHeaders() });
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  return res.json() as Promise<T>;
+}
+
+export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
+  const res = await fetch(BASE + path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  return res.json() as Promise<T>;
+}

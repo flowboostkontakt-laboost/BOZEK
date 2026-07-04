@@ -1,0 +1,183 @@
+// System Ewidencji Produkcji i Norm Pracy — model danych (Wariant A)
+// PostgreSQL + pgvector (embeddingi zdjęć produktów dla modułu AI).
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [vector]
+}
+
+// ─── Użytkownicy i role ──────────────────────────────────────────────
+enum Role {
+  ADMIN
+  WORKER
+}
+
+model User {
+  id           String    @id @default(cuid())
+  login        String    @unique
+  passwordHash String
+  role         Role      @default(WORKER)
+  active       Boolean   @default(true) // blokowanie kont (panel admina)
+  employee     Employee? @relation(fields: [employeeId], references: [id])
+  employeeId   String?   @unique
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
+
+// ─── Pracownice ──────────────────────────────────────────────────────
+model Employee {
+  id              String            @id @default(cuid())
+  name            String
+  avatarUrl       String?
+  active          Boolean           @default(true)
+  // Norma bazowa przy pełnym etacie 8h (np. 1750 lub 2000 zł) — spec 4.2.
+  baseNormPln     Decimal           @db.Decimal(10, 2)
+  defaultHours    Decimal           @db.Decimal(4, 2) @default(8.0)
+  user            User?
+  entries         ProductionEntry[]
+  attendance      Attendance[]
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+}
+
+// ─── Katalog (synchronizowany z PrestaShop) ──────────────────────────
+model Category {
+  id           String     @id @default(cuid())
+  prestaId     String?    @unique
+  name         String
+  // Domyślny udział % normy: Opaski 50, Turbany 100 (spec 4.2).
+  normPct      Int        @default(100)
+  products     Product[]
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+}
+
+model Product {
+  id          String            @id @default(cuid())
+  prestaId    String?           @unique
+  // 4 ostatnie cyfry ID — ścieżka "Ręczne ID" w PWA.
+  last4       String?           @db.VarChar(8)
+  barcode     String?           // skan kodu kreskowego/QR
+  name        String
+  pricePln    Decimal           @db.Decimal(10, 2)
+  photoUrl    String?
+  active      Boolean           @default(true)
+  category    Category          @relation(fields: [categoryId], references: [id])
+  categoryId  String
+  // Nadpisanie przelicznika normy dla pojedynczego produktu (override).
+  normPctOverride Int?
+  // Embedding zdjęcia (CLIP) do dopasowania AI — wymiar zależny od modelu.
+  embedding   Unsupported("vector(512)")?
+  entries     ProductionEntry[]
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@index([last4])
+  @@index([barcode])
+}
+
+// ─── Ewidencja produkcji ─────────────────────────────────────────────
+enum EntryMethod {
+  MANUAL_ID
+  SCAN
+  PHOTO_AI
+}
+
+enum EntryStatus {
+  CONFIRMED
+  PENDING_REVIEW // "Do sprawdzenia": zadania niestandardowe / nierozpoznane
+}
+
+model ProductionEntry {
+  id          String      @id @default(cuid())
+  employee    Employee    @relation(fields: [employeeId], references: [id])
+  employeeId  String
+  // Produkt z katalogu LUB zadanie niestandardowe (product == null).
+  product     Product?    @relation(fields: [productId], references: [id])
+  productId   String?
+  customLabel String?     // opis zadania niestandardowego / poprawki / pracy porządkowej
+  quantity    Int         @default(1)
+  method      EntryMethod
+  status      EntryStatus @default(CONFIRMED)
+  // Wartość w przeliczeniu na normę (zł) — wyliczana przez silnik norm.
+  // Dla PENDING_REVIEW null do czasu wyceny przez admina.
+  normValuePln Decimal?   @db.Decimal(10, 2)
+  photoUrl    String?     // zdjęcie z modułu AI (Wariant A)
+  aiScore     Float?      // pewność dopasowania AI (0-1)
+  createdAt   DateTime    @default(now())
+
+  @@index([employeeId, createdAt])
+  @@index([status])
+}
+
+// ─── Kalendarz i obecności ───────────────────────────────────────────
+enum AttendanceType {
+  WORK
+  VACATION
+  SICK_LEAVE
+}
+
+model Attendance {
+  id         String         @id @default(cuid())
+  employee   Employee       @relation(fields: [employeeId], references: [id])
+  employeeId String
+  date       DateTime       @db.Date
+  type       AttendanceType @default(WORK)
+  hours      Decimal        @db.Decimal(4, 2) @default(8.0)
+
+  @@unique([employeeId, date])
+}
+
+// ─── System premiowy (konfiguracja — tylko admin) ────────────────────
+model BonusTier {
+  id           String   @id @default(cuid())
+  thresholdPct Int      // próg % normy miesięcznej (np. 100, 110)
+  amountPln    Decimal  @db.Decimal(10, 2)
+  label        String?
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+}
+
+// ─── Logi synchronizacji PrestaShop ──────────────────────────────────
+enum SyncStatus {
+  SUCCESS
+  FAILED
+  RUNNING
+}
+
+model SyncLog {
+  id            String     @id @default(cuid())
+  status        SyncStatus
+  productsCount Int        @default(0)
+  message       String?
+  startedAt     DateTime   @default(now())
+  finishedAt    DateTime?
+}
+
+// ─── Logi eksportów (sekcja "Poprzednie Eksporty") ───────────────────
+model ExportLog {
+  id        String   @id @default(cuid())
+  fileName  String
+  format    String   // xlsx | csv
+  rangeFrom DateTime?
+  rangeTo   DateTime?
+  createdAt DateTime @default(now())
+}
+
+// ─── Sesje / refresh tokens ──────────────────────────────────────────
+model RefreshToken {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  revoked   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}

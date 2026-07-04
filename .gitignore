@@ -1,0 +1,31 @@
+# dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# builds
+dist/
+build/
+*.tsbuildinfo
+
+# env / secrets
+.env
+.env.local
+.env.*.local
+
+# prisma
+apps/api/prisma/migrations/dev.db*
+
+# logs
+*.log
+npm-debug.log*
+
+# editor / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# uploads (zdjęcia z modułu AI — przechowywane lokalnie / w storage)
+apps/api/uploads/
