@@ -5,6 +5,9 @@ const config: CapacitorConfig = {
   appName: "Ewidencja",
   webDir: "dist",
   server: {
+    // Apka ładuje treść wprost z serwera → każda aktualizacja pojawia się
+    // automatycznie po otwarciu, bez instalowania nowego APK.
+    url: "https://bozek-web.onrender.com",
     androidScheme: "https",
   },
 };
