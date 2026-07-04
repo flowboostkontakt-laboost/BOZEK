@@ -3,7 +3,7 @@ import { kolorPostepu } from "@sep/shared";
 const TOKEN_COLOR: Record<ReturnType<typeof kolorPostepu>, string> = {
   danger: "#fb7185",
   warning: "#fbbf24",
-  ok: "#7c5cff",
+  ok: "#c33a5e",
   success: "#34d399",
 };
 
@@ -26,7 +26,7 @@ export function ProgressRing({ pct, label, size = 96 }: Props) {
     <div className="flex flex-col items-center gap-2">
       <div className="relative" style={{ width: size, height: size }}>
         <svg width={size} height={size} className="-rotate-90">
-          <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#2a2637" strokeWidth={stroke} />
+          <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#2c2528" strokeWidth={stroke} />
           <circle
             cx={size / 2}
             cy={size / 2}

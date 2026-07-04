@@ -40,8 +40,20 @@ model Employee {
   user            User?
   entries         ProductionEntry[]
   attendance      Attendance[]
+  sessions        WorkSession[]
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
+}
+
+// ─── Rejestracja czasu pracy („Zaczęłam pracę") ──────────────────────
+model WorkSession {
+  id         String    @id @default(cuid())
+  employee   Employee  @relation(fields: [employeeId], references: [id])
+  employeeId String
+  startedAt  DateTime  @default(now())
+  endedAt    DateTime?
+
+  @@index([employeeId, startedAt])
 }
 
 // ─── Katalog (synchronizowany z PrestaShop) ──────────────────────────

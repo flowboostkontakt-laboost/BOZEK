@@ -5,6 +5,7 @@ import {
   IconArrowLeft,
   IconBarcode,
   IconCamera,
+  IconChart,
   IconCheck,
   IconClock,
   IconKeypad,
@@ -12,6 +13,7 @@ import {
   IconMinus,
   IconPlus,
 } from "../../components/icons";
+import { kolorPostepu } from "@sep/shared";
 import { useAuth } from "../../lib/auth";
 import { apiGet, apiPost, apiUpload } from "../../lib/api";
 import { catalog as fixtureCatalog, type RecentEntry } from "../../lib/fixtures";
@@ -24,9 +26,9 @@ interface Prod {
   color: string;
 }
 
-type Screen = "dashboard" | "method" | "manual" | "scan" | "photo" | "confirm" | "task";
+type Screen = "dashboard" | "method" | "manual" | "scan" | "photo" | "confirm" | "task" | "stats";
 
-const PALETTE = ["#8b6f9e", "#a8556b", "#6f7f9e", "#7c5cff", "#4f9e86", "#b08968"];
+const PALETTE = ["#8c3048", "#a8556b", "#7a3b46", "#a8264a", "#8a5a52", "#b08968"];
 const colorFor = (s: string) => PALETTE[[...s].reduce((a, c) => a + c.charCodeAt(0), 0) % PALETTE.length];
 
 export function WorkerApp() {
@@ -43,6 +45,7 @@ export function WorkerApp() {
   );
   const [progress, setProgress] = useState({ dayPct: 0, monthPct: 0 });
   const [recent, setRecent] = useState<RecentEntry[]>([]);
+  const [shiftStart, setShiftStart] = useState<Date | null>(null);
 
   const load = () => {
     apiGet<{ id: string; name: string; category: string; last4: string }[]>("/worker/products")
@@ -52,8 +55,24 @@ export function WorkerApp() {
       .catch(() => void 0);
     apiGet<{ dayPct: number; monthPct: number }>("/worker/me/progress").then(setProgress).catch(() => void 0);
     apiGet<RecentEntry[]>("/worker/entries/recent").then(setRecent).catch(() => void 0);
+    apiGet<{ active: boolean; startedAt: string | null }>("/worker/shift/current")
+      .then((r) => setShiftStart(r.startedAt ? new Date(r.startedAt) : null))
+      .catch(() => void 0);
   };
   useEffect(load, []);
+
+  const startShift = async () => {
+    try {
+      const r = await apiPost<{ startedAt: string }>("/worker/shift/start");
+      setShiftStart(new Date(r.startedAt));
+    } catch {
+      setShiftStart(new Date());
+    }
+  };
+  const stopShift = async () => {
+    apiPost("/worker/shift/stop").catch(() => void 0);
+    setShiftStart(null);
+  };
 
   const toConfirm = (p: Prod, score: number | null = null) => {
     setSelected(p);
@@ -89,11 +108,15 @@ export function WorkerApp() {
           name={user?.name ?? "—"}
           progress={progress}
           recent={recent}
+          shiftStart={shiftStart}
+          onStartShift={startShift}
+          onStopShift={stopShift}
           onMenu={() => setMenu(true)}
           onAdd={() => setScreen("method")}
           onTask={() => setScreen("task")}
         />
       )}
+      {screen === "stats" && <StatsScreen onBack={() => setScreen("dashboard")} />}
       {screen === "method" && (
         <MethodPicker
           onBack={() => setScreen("dashboard")}
@@ -132,7 +155,13 @@ export function WorkerApp() {
       {screen === "task" && <TaskEntry onBack={() => setScreen("dashboard")} onSent={() => setScreen("dashboard")} />}
 
       {menu && (
-        <Menu name={user?.name ?? ""} onClose={() => setMenu(false)} onRefresh={load} onLogout={logout} />
+        <Menu
+          name={user?.name ?? ""}
+          onClose={() => setMenu(false)}
+          onStats={() => { setMenu(false); setScreen("stats"); }}
+          onRefresh={load}
+          onLogout={logout}
+        />
       )}
     </div>
   );
@@ -156,7 +185,19 @@ function TopBar({ title, onBack, onMenu, right }: { title: string; onBack?: () =
   );
 }
 
-function Menu({ name, onClose, onRefresh, onLogout }: { name: string; onClose: () => void; onRefresh: () => void; onLogout: () => void }) {
+function Menu({
+  name,
+  onClose,
+  onStats,
+  onRefresh,
+  onLogout,
+}: {
+  name: string;
+  onClose: () => void;
+  onStats: () => void;
+  onRefresh: () => void;
+  onLogout: () => void;
+}) {
   return (
     <div className="fixed inset-0 z-50 flex" onClick={onClose}>
       <div className="absolute inset-0 bg-black/50" />
@@ -174,6 +215,9 @@ function Menu({ name, onClose, onRefresh, onLogout }: { name: string; onClose: (
             <p className="text-xs text-ink-faint">Pracownica</p>
           </div>
         </div>
+        <button onClick={onStats} className="mb-3 flex w-full items-center gap-3 rounded-xl border border-line px-4 py-3 text-left font-medium hover:bg-surface-2">
+          <IconChart className="h-5 w-5 text-accent-300" /> Statystyki
+        </button>
         <button onClick={() => { onRefresh(); onClose(); }} className="btn-ghost mb-3 w-full text-left">
           Odśwież dane
         </button>
@@ -189,6 +233,9 @@ function Dashboard({
   name,
   progress,
   recent,
+  shiftStart,
+  onStartShift,
+  onStopShift,
   onMenu,
   onAdd,
   onTask,
@@ -196,6 +243,9 @@ function Dashboard({
   name: string;
   progress: { dayPct: number; monthPct: number };
   recent: RecentEntry[];
+  shiftStart: Date | null;
+  onStartShift: () => void;
+  onStopShift: () => void;
   onMenu: () => void;
   onAdd: () => void;
   onTask: () => void;
@@ -217,7 +267,9 @@ function Dashboard({
         <span className="text-xs text-ink-faint">{monthLabel}</span>
       </div>
 
-      <div className="mx-4 mt-2 flex items-center justify-around rounded-2xl border border-line bg-surface-1 py-6">
+      <WorkTimer start={shiftStart} onStart={onStartShift} onStop={onStopShift} />
+
+      <div className="mx-4 mt-3 flex items-center justify-around rounded-2xl border border-line bg-surface-1 py-6">
         <ProgressRing pct={progress.dayPct} label="Dziś" size={108} />
         <ProgressRing pct={progress.monthPct} label="Miesiąc" size={108} />
       </div>
@@ -502,6 +554,92 @@ function TaskEntry({ onBack, onSent }: { onBack: () => void; onSent: () => void 
         <button disabled={!text.trim()} onClick={send} className="w-full rounded-2xl bg-accent py-4 text-base font-semibold text-white transition active:scale-[0.98] disabled:opacity-40">
           Wyślij do weryfikacji
         </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Licznik czasu pracy ──────────────────────────────────────────────
+function WorkTimer({ start, onStart, onStop }: { start: Date | null; onStart: () => void; onStop: () => void }) {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!start) return;
+    const id = setInterval(() => setTick((t) => t + 1), 1000);
+    return () => clearInterval(id);
+  }, [start]);
+
+  if (!start) {
+    return (
+      <button
+        onClick={onStart}
+        className="mx-4 mt-3 flex items-center justify-center gap-2 rounded-2xl bg-accent py-4 text-lg font-semibold text-white transition active:scale-[0.98]"
+      >
+        <IconClock className="h-6 w-6" /> Zacznij pracę
+      </button>
+    );
+  }
+  const secs = Math.max(0, Math.floor((Date.now() - start.getTime()) / 1000));
+  const p = (n: number) => String(n).padStart(2, "0");
+  const label = `${p(Math.floor(secs / 3600))}:${p(Math.floor((secs % 3600) / 60))}:${p(secs % 60)}`;
+  return (
+    <div className="mx-4 mt-3 flex items-center justify-between rounded-2xl border border-accent/40 bg-accent-soft p-4">
+      <div>
+        <p className="text-xs uppercase tracking-wide text-ink-faint">Czas pracy</p>
+        <p className="text-3xl font-semibold tabular-nums">{label}</p>
+      </div>
+      <button onClick={onStop} className="rounded-xl bg-bad/20 px-4 py-2.5 font-medium text-bad">
+        Zakończ
+      </button>
+    </div>
+  );
+}
+
+// ─── Ekran Statystyki ─────────────────────────────────────────────────
+function StatsScreen({ onBack }: { onBack: () => void }) {
+  const [s, setS] = useState({ dayPct: 0, monthPct: 0, todayUnits: 0, monthUnits: 0 });
+  useEffect(() => {
+    apiGet<typeof s>("/worker/me/stats").then(setS).catch(() => void 0);
+  }, []);
+  return (
+    <div className="flex flex-1 flex-col">
+      <TopBar title="Statystyki" onBack={onBack} />
+      <div className="space-y-5 px-4 pt-5">
+        <div className="grid grid-cols-2 gap-3">
+          <StatCard label="Norma dziś" value={`${s.dayPct}%`} accent />
+          <StatCard label="Norma w miesiącu" value={`${s.monthPct}%`} accent />
+          <StatCard label="Sztuki dziś" value={String(s.todayUnits)} />
+          <StatCard label="Sztuki w miesiącu" value={String(s.monthUnits)} />
+        </div>
+        <div className="rounded-2xl border border-line bg-surface-1 p-4">
+          <StatBar label="Realizacja dzienna" pct={s.dayPct} />
+          <div className="h-4" />
+          <StatBar label="Realizacja miesięczna" pct={s.monthPct} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StatCard({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
+  return (
+    <div className="rounded-2xl border border-line bg-surface-1 p-4">
+      <p className="text-xs uppercase tracking-wide text-ink-faint">{label}</p>
+      <p className={`mt-1 text-3xl font-semibold ${accent ? "text-accent-300" : ""}`}>{value}</p>
+    </div>
+  );
+}
+
+const BAR_COLOR = { danger: "#fb7185", warning: "#fbbf24", ok: "#c33a5e", success: "#34d399" } as const;
+function StatBar({ label, pct }: { label: string; pct: number }) {
+  const color = BAR_COLOR[kolorPostepu(pct)];
+  return (
+    <div>
+      <div className="mb-1 flex justify-between text-sm">
+        <span className="text-ink-muted">{label}</span>
+        <span className="font-medium" style={{ color }}>{pct}%</span>
+      </div>
+      <div className="h-3 overflow-hidden rounded-full bg-surface-3">
+        <div className="h-full rounded-full" style={{ width: `${Math.min(100, pct)}%`, background: color }} />
       </div>
     </div>
   );

@@ -107,8 +107,8 @@ function EmployeesCard({ data }: { data: DashboardData }) {
             contentStyle={{ background: "#1e1b29", border: "1px solid #2a2637", borderRadius: 12, color: "#f2f0f7" }}
             formatter={(v: number) => `${zl(v)} zł`}
           />
-          <Bar dataKey="norma" name="Norma" fill="#3a3350" radius={[4, 4, 0, 0]} />
-          <Bar dataKey="wykonano" name="Wykonano" fill="#7c5cff" radius={[4, 4, 0, 0]} />
+          <Bar dataKey="norma" name="Norma" fill="#3a2c30" radius={[4, 4, 0, 0]} />
+          <Bar dataKey="wykonano" name="Wykonano" fill="#a8264a" radius={[4, 4, 0, 0]} />
         </BarChart>
       </ResponsiveContainer>
     </Card>
@@ -132,7 +132,7 @@ function CategoriesCard({ data }: { data: DashboardData }) {
           />
           <Scatter data={points}>
             {points.map((_, i) => (
-              <Cell key={i} fill={["#7c5cff", "#9276ff", "#a78bff"][i % 3]} fillOpacity={0.75} />
+              <Cell key={i} fill={["#a8264a", "#c33a5e", "#e07089"][i % 3]} fillOpacity={0.8} />
             ))}
           </Scatter>
         </ScatterChart>

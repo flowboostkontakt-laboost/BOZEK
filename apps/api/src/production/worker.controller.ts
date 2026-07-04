@@ -98,4 +98,68 @@ export class WorkerController {
     });
     return { id: entry.id, status: "PENDING_REVIEW" };
   }
+
+  // ─── Czas pracy („Zaczęłam pracę") ──────────────────────────────────
+
+  @Get("shift/current")
+  async shiftCurrent(@CurrentUser() user: AuthUser) {
+    const s = await this.prisma.workSession.findFirst({
+      where: { employeeId: this.emp(user), endedAt: null },
+      orderBy: { startedAt: "desc" },
+    });
+    return { active: !!s, startedAt: s?.startedAt ?? null };
+  }
+
+  @Post("shift/start")
+  async shiftStart(@CurrentUser() user: AuthUser) {
+    const employeeId = this.emp(user);
+    const open = await this.prisma.workSession.findFirst({ where: { employeeId, endedAt: null } });
+    if (open) return { startedAt: open.startedAt, alreadyActive: true };
+    const s = await this.prisma.workSession.create({ data: { employeeId } });
+    return { startedAt: s.startedAt };
+  }
+
+  @Post("shift/stop")
+  async shiftStop(@CurrentUser() user: AuthUser) {
+    const employeeId = this.emp(user);
+    const open = await this.prisma.workSession.findFirst({
+      where: { employeeId, endedAt: null },
+      orderBy: { startedAt: "desc" },
+    });
+    if (!open) return { ok: false, minutes: 0 };
+    const endedAt = new Date();
+    await this.prisma.workSession.update({ where: { id: open.id }, data: { endedAt } });
+    return { ok: true, minutes: Math.round((endedAt.getTime() - open.startedAt.getTime()) / 60000) };
+  }
+
+  // ─── Statystyki pracownicy (tylko procenty i sztuki — dyskrecja) ────
+
+  @Get("me/stats")
+  async stats(@CurrentUser() user: AuthUser) {
+    const employeeId = this.emp(user);
+    const [day, month] = await Promise.all([
+      this.norms.dayProgress(employeeId),
+      this.norms.monthProgress(employeeId),
+    ]);
+    const now = new Date();
+    const startDay = new Date(now);
+    startDay.setHours(0, 0, 0, 0);
+    const startMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const [today, monthAgg] = await Promise.all([
+      this.prisma.productionEntry.aggregate({
+        _sum: { quantity: true },
+        where: { employeeId, status: "CONFIRMED", createdAt: { gte: startDay } },
+      }),
+      this.prisma.productionEntry.aggregate({
+        _sum: { quantity: true },
+        where: { employeeId, status: "CONFIRMED", createdAt: { gte: startMonth } },
+      }),
+    ]);
+    return {
+      dayPct: day.pct,
+      monthPct: month.pct,
+      todayUnits: today._sum.quantity ?? 0,
+      monthUnits: monthAgg._sum.quantity ?? 0,
+    };
+  }
 }
