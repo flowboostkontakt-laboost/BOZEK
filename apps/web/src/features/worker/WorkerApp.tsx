@@ -168,19 +168,20 @@ export function WorkerApp() {
 }
 
 const safeTop = { paddingTop: "calc(env(safe-area-inset-top) + 14px)" };
+const safeBottom = { paddingBottom: "calc(env(safe-area-inset-bottom) + 20px)" };
 
 function TopBar({ title, onBack, onMenu, right }: { title: string; onBack?: () => void; onMenu?: () => void; right?: ReactNode }) {
   return (
-    <div className="flex items-center justify-between px-5 pb-3" style={safeTop}>
+    <div className="flex items-center justify-between px-4 pb-3" style={safeTop}>
       <button
         onClick={onBack ?? onMenu}
-        className="grid h-10 w-10 place-items-center rounded-xl hover:bg-surface-2"
+        className="grid h-11 w-11 place-items-center rounded-xl hover:bg-surface-2 active:scale-95"
         aria-label={onBack ? "Wróć" : "Menu"}
       >
         {onBack ? <IconArrowLeft className="h-5 w-5" /> : <IconMenu className="h-5 w-5" />}
       </button>
       <p className="text-sm font-semibold tracking-wide">{title}</p>
-      {right ?? <div className="h-10 w-10" />}
+      {right ?? <div className="h-11 w-11" />}
     </div>
   );
 }
@@ -203,7 +204,7 @@ function Menu({
       <div className="absolute inset-0 bg-black/50" />
       <div
         className="relative ml-0 flex h-full w-72 max-w-[80%] flex-col bg-surface-1 p-5"
-        style={safeTop}
+        style={{ ...safeTop, ...safeBottom }}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-6 flex items-center gap-3">
@@ -255,15 +256,15 @@ function Dashboard({
   const monthLabel = now.toLocaleDateString("pl-PL", { month: "long", year: "numeric" }).toUpperCase();
 
   return (
-    <div className="flex flex-1 flex-col pb-6">
+    <div className="flex flex-1 flex-col" style={safeBottom}>
       <TopBar
         title={dateLabel}
         onMenu={onMenu}
-        right={<div className="grid h-10 w-10 place-items-center rounded-full bg-accent text-sm font-semibold text-white">{name.slice(0, 1).toUpperCase()}</div>}
+        right={<div className="grid h-11 w-11 place-items-center rounded-full bg-accent text-sm font-semibold text-white">{name.slice(0, 1).toUpperCase()}</div>}
       />
 
-      <div className="flex items-center justify-between px-5 pb-2 pt-1">
-        <p className="text-xl font-semibold">Cześć, {name}</p>
+      <div className="flex items-center justify-between px-4 pb-2 pt-1">
+        <p className="text-2xl font-semibold">Cześć, {name}</p>
         <span className="text-xs text-ink-faint">{monthLabel}</span>
       </div>
 
@@ -290,15 +291,15 @@ function Dashboard({
         {recent.length === 0 ? (
           <p className="py-8 text-center text-sm text-ink-faint">Brak wpisów. Dodaj pierwszy produkt.</p>
         ) : (
-          <ul className="space-y-3">
+          <ul className="divide-y divide-line/50">
             {recent.map((r, i) => (
-              <li key={i} className="flex items-center gap-3">
-                <div className="grid h-9 w-9 place-items-center rounded-lg bg-surface-3 text-xs font-semibold text-accent-300">{r.qty}×</div>
-                <div className="flex-1">
-                  <p className="text-sm font-medium">{r.name}</p>
+              <li key={i} className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
+                <div className="grid h-10 w-10 place-items-center rounded-xl bg-surface-3 text-sm font-semibold tabular-nums text-accent-300">{r.qty}×</div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium">{r.name}</p>
                   <p className="text-xs text-ink-faint">{r.qty} szt.</p>
                 </div>
-                <span className="text-xs text-ink-faint">{r.time}</span>
+                <span className="text-xs tabular-nums text-ink-faint">{r.time}</span>
               </li>
             ))}
           </ul>
@@ -318,19 +319,21 @@ function MethodPicker({ onBack, onManual, onScan, onPhoto }: { onBack: () => voi
     <div className="flex flex-1 flex-col">
       <TopBar title="Nowy wpis" onBack={onBack} />
       <div className="space-y-4 px-4 pt-4">
-        {methods.map((m) => (
+        {methods.map((m, i) => (
           <button
             key={m.title}
             onClick={m.on}
             className="flex w-full items-center gap-4 rounded-2xl border border-line bg-surface-1 p-5 text-left transition hover:border-accent/50 active:scale-[0.99]"
           >
-            <div className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-accent-soft text-accent-300">
+            <div className="relative grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-accent-soft text-accent-300">
               <m.icon className="h-7 w-7" />
+              <span className="absolute -right-1.5 -top-1.5 grid h-6 w-6 place-items-center rounded-full bg-accent text-xs font-semibold text-white">{i + 1}</span>
             </div>
-            <div>
+            <div className="min-w-0">
               <p className="text-lg font-semibold">{m.title}</p>
               <p className="text-sm text-ink-muted">{m.sub}</p>
             </div>
+            <IconArrowLeft className="ml-auto h-5 w-5 rotate-180 text-ink-faint" />
           </button>
         ))}
       </div>
@@ -356,17 +359,20 @@ function ManualEntry({ products, onBack, onNext }: { products: Prod[]; onBack: (
         {val.length === 4 &&
           (match ? (
             <div className="mt-6 flex items-center gap-3 rounded-2xl border border-accent/40 bg-accent-soft p-4">
-              <div className="h-12 w-12 rounded-xl" style={{ background: match.color }} />
-              <div>
-                <p className="font-medium">{match.name}</p>
+              <div className="grid h-12 w-12 place-items-center rounded-xl text-lg font-bold text-white/80" style={{ background: match.color }}>
+                {match.name.slice(0, 1)}
+              </div>
+              <div className="min-w-0">
+                <p className="truncate font-medium">{match.name}</p>
                 <p className="text-xs text-ink-muted">Kat: {match.category}</p>
               </div>
+              <IconCheck className="ml-auto h-6 w-6 text-ok" />
             </div>
           ) : (
             <p className="mt-6 text-center text-sm text-bad">Nie znaleziono produktu o tym ID.</p>
           ))}
       </div>
-      <div className="mt-auto p-5">
+      <div className="mt-auto px-4 pt-5" style={safeBottom}>
         <button
           disabled={!match}
           onClick={() => match && onNext(match)}
@@ -415,7 +421,7 @@ function ScanEntry({ products, onBack, onFound }: { products: Prod[]; onBack: ()
           {camError ? "Brak dostępu do kamery — użyj przycisku poniżej." : "Skieruj aparat na kod kreskowy / QR."}
         </p>
       </div>
-      <div className="mt-auto p-5">
+      <div className="mt-auto px-4 pt-5" style={safeBottom}>
         {products[0] && (
           <button onClick={() => onFound(products[0])} className="w-full rounded-2xl border border-line bg-surface-1 py-3 text-sm font-medium">
             Wpisz ręcznie zamiast skanu
@@ -495,7 +501,13 @@ function ConfirmEntry({
       <TopBar title="Potwierdź wpis" onBack={onBack} />
       <div className="px-5 pt-4">
         <div className="relative aspect-[4/3] overflow-hidden rounded-2xl border border-line">
-          {photo ? <img src={photo} alt={product.name} className="h-full w-full object-cover" /> : <div className="h-full w-full" style={{ background: product.color }} />}
+          {photo ? (
+            <img src={photo} alt={product.name} className="h-full w-full object-cover" />
+          ) : (
+            <div className="grid h-full w-full place-items-center text-6xl font-bold text-white/80" style={{ background: product.color }}>
+              {product.name.slice(0, 1)}
+            </div>
+          )}
           {aiScore !== null && <span className="absolute right-3 top-3 rounded-lg bg-black/60 px-2 py-1 text-xs font-medium text-ok">AI {Math.round(aiScore * 100)}%</span>}
         </div>
 
@@ -511,15 +523,17 @@ function ConfirmEntry({
         </div>
 
         <div className="mt-5 flex items-center gap-3 rounded-2xl border border-line bg-surface-1 p-4">
-          <div className="h-12 w-12 rounded-xl" style={{ background: product.color }} />
-          <div>
-            <p className="font-medium">{product.name}</p>
+          <div className="grid h-12 w-12 place-items-center rounded-xl text-lg font-bold text-white/80" style={{ background: product.color }}>
+            {product.name.slice(0, 1)}
+          </div>
+          <div className="min-w-0">
+            <p className="truncate font-medium">{product.name}</p>
             <p className="text-xs text-ink-muted">Kat: {product.category}</p>
           </div>
         </div>
       </div>
 
-      <div className="mt-auto p-5">
+      <div className="mt-auto px-4 pt-5" style={safeBottom}>
         <button onClick={onSave} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-accent py-4 text-base font-semibold text-white transition active:scale-[0.98]">
           <IconCheck className="h-5 w-5" /> Zapisz wynik
         </button>
@@ -550,7 +564,7 @@ function TaskEntry({ onBack, onSent }: { onBack: () => void; onSent: () => void 
           Zgłoszenie trafi do administratora ze statusem <b className="text-ink-muted">„Do weryfikacji"</b> i zostanie wycenione.
         </p>
       </div>
-      <div className="mt-auto p-5">
+      <div className="mt-auto px-4 pt-5" style={safeBottom}>
         <button disabled={!text.trim()} onClick={send} className="w-full rounded-2xl bg-accent py-4 text-base font-semibold text-white transition active:scale-[0.98] disabled:opacity-40">
           Wyślij do weryfikacji
         </button>
@@ -603,7 +617,7 @@ function StatsScreen({ onBack }: { onBack: () => void }) {
   return (
     <div className="flex flex-1 flex-col">
       <TopBar title="Statystyki" onBack={onBack} />
-      <div className="space-y-5 px-4 pt-5">
+      <div className="space-y-5 px-4 pt-5" style={safeBottom}>
         <div className="grid grid-cols-2 gap-3">
           <StatCard label="Norma dziś" value={`${s.dayPct}%`} accent />
           <StatCard label="Norma w miesiącu" value={`${s.monthPct}%`} accent />
