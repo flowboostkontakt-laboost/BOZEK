@@ -34,6 +34,24 @@ export class WorkerController {
     return { dayPct: day.pct, monthPct: month.pct };
   }
 
+  /** Katalog produktów dla pracownicy (bez cen — dyskrecja). Do wyszukiwania po 4 cyfrach i skanu. */
+  @Get("products")
+  async products() {
+    const list = await this.prisma.product.findMany({
+      where: { active: true },
+      include: { category: { select: { name: true } } },
+      orderBy: { name: "asc" },
+      take: 1000,
+    });
+    return list.map((p) => ({
+      id: p.id,
+      name: p.name,
+      category: p.category.name,
+      last4: p.last4 ?? "",
+      barcode: p.barcode ?? "",
+    }));
+  }
+
   @Get("entries/recent")
   async recent(@CurrentUser() user: AuthUser) {
     const list = await this.prisma.productionEntry.findMany({

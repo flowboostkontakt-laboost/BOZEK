@@ -1,5 +1,4 @@
-import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { BrowserMultiFormatReader } from "@zxing/browser";
 import { ProgressRing } from "../../components/ProgressRing";
 import {
@@ -13,51 +12,87 @@ import {
   IconMinus,
   IconPlus,
 } from "../../components/icons";
-import {
-  workerFixture,
-  findByLast4,
-  catalog,
-  type CatalogProduct,
-  type RecentEntry,
-} from "../../lib/fixtures";
+import { useAuth } from "../../lib/auth";
+import { apiGet, apiPost, apiUpload } from "../../lib/api";
+import { catalog as fixtureCatalog, type RecentEntry } from "../../lib/fixtures";
+
+interface Prod {
+  id?: string;
+  name: string;
+  category: string;
+  last4: string;
+  color: string;
+}
 
 type Screen = "dashboard" | "method" | "manual" | "scan" | "photo" | "confirm" | "task";
 
+const PALETTE = ["#8b6f9e", "#a8556b", "#6f7f9e", "#7c5cff", "#4f9e86", "#b08968"];
+const colorFor = (s: string) => PALETTE[[...s].reduce((a, c) => a + c.charCodeAt(0), 0) % PALETTE.length];
+
 export function WorkerApp() {
+  const { user, logout } = useAuth();
   const [screen, setScreen] = useState<Screen>("dashboard");
-  const [selected, setSelected] = useState<CatalogProduct | null>(null);
+  const [menu, setMenu] = useState(false);
+  const [selected, setSelected] = useState<Prod | null>(null);
   const [qty, setQty] = useState(1);
   const [photo, setPhoto] = useState<string | null>(null);
   const [aiScore, setAiScore] = useState<number | null>(null);
-  const [recent, setRecent] = useState<RecentEntry[]>(workerFixture.recent);
 
-  const toConfirm = (p: CatalogProduct, score: number | null = null) => {
+  const [products, setProducts] = useState<Prod[]>(
+    fixtureCatalog.map((c) => ({ name: c.name, category: c.category, last4: c.last4, color: c.color })),
+  );
+  const [progress, setProgress] = useState({ dayPct: 0, monthPct: 0 });
+  const [recent, setRecent] = useState<RecentEntry[]>([]);
+
+  const load = () => {
+    apiGet<{ id: string; name: string; category: string; last4: string }[]>("/worker/products")
+      .then((list) =>
+        setProducts(list.map((p) => ({ ...p, color: colorFor(p.name) }))),
+      )
+      .catch(() => void 0);
+    apiGet<{ dayPct: number; monthPct: number }>("/worker/me/progress").then(setProgress).catch(() => void 0);
+    apiGet<RecentEntry[]>("/worker/entries/recent").then(setRecent).catch(() => void 0);
+  };
+  useEffect(load, []);
+
+  const toConfirm = (p: Prod, score: number | null = null) => {
     setSelected(p);
     setQty(1);
     setAiScore(score);
     setScreen("confirm");
   };
 
-  const reset = () => {
+  const save = async (method: string) => {
+    if (selected?.id) {
+      try {
+        await apiPost("/worker/entries", { productId: selected.id, quantity: qty, method });
+        load();
+      } catch {
+        /* offline — pokaż lokalnie */
+      }
+    }
+    if (selected && !selected.id) {
+      const time = new Date().toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" });
+      setRecent((r) => [{ name: selected.name, qty, time }, ...r].slice(0, 8));
+    }
     setSelected(null);
     setQty(1);
     setPhoto(null);
     setAiScore(null);
-  };
-
-  const save = () => {
-    if (selected) {
-      const time = new Date().toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" });
-      setRecent([{ name: selected.name, qty, time }, ...recent].slice(0, 6));
-    }
-    reset();
     setScreen("dashboard");
   };
 
   return (
-    <PhoneFrame>
+    <div className="mx-auto flex min-h-screen w-full max-w-md flex-col bg-bg text-ink">
       {screen === "dashboard" && (
-        <Dashboard recent={recent} onAdd={() => setScreen("method")} onTask={() => setScreen("task")} />
+        <Dashboard
+          name={user?.name ?? "—"}
+          progress={progress}
+          recent={recent}
+          onMenu={() => setMenu(true)}
+          onAdd={() => setScreen("method")}
+          onTask={() => setScreen("task")}
+        />
       )}
       {screen === "method" && (
         <MethodPicker
@@ -68,13 +103,14 @@ export function WorkerApp() {
         />
       )}
       {screen === "manual" && (
-        <ManualEntry onBack={() => setScreen("method")} onNext={(p) => toConfirm(p)} />
+        <ManualEntry products={products} onBack={() => setScreen("method")} onNext={(p) => toConfirm(p)} />
       )}
       {screen === "scan" && (
-        <ScanEntry onBack={() => setScreen("method")} onFound={(p) => toConfirm(p)} />
+        <ScanEntry products={products} onBack={() => setScreen("method")} onFound={(p) => toConfirm(p)} />
       )}
       {screen === "photo" && (
         <PhotoEntry
+          products={products}
           onBack={() => setScreen("method")}
           onRecognized={(p, score, dataUrl) => {
             setPhoto(dataUrl);
@@ -90,151 +126,157 @@ export function WorkerApp() {
           aiScore={aiScore}
           onQty={setQty}
           onBack={() => setScreen("method")}
-          onSave={save}
+          onSave={() => save(aiScore !== null ? "PHOTO_AI" : "MANUAL_ID")}
         />
       )}
       {screen === "task" && <TaskEntry onBack={() => setScreen("dashboard")} onSent={() => setScreen("dashboard")} />}
-    </PhoneFrame>
-  );
-}
 
-// ─── Ramka telefonu ───────────────────────────────────────────────────
-function PhoneFrame({ children }: { children: React.ReactNode }) {
-  const navigate = useNavigate();
-  return (
-    <div className="grid min-h-screen place-items-center bg-black/60 p-4">
-      <div className="relative h-[812px] w-[390px] overflow-hidden rounded-[2.75rem] border-[10px] border-[#111019] bg-bg shadow-2xl">
-        <div className="absolute left-1/2 top-0 z-10 h-6 w-36 -translate-x-1/2 rounded-b-2xl bg-[#111019]" />
-        <div className="h-full overflow-y-auto">{children}</div>
-      </div>
-      <button
-        onClick={() => navigate("/")}
-        className="mt-4 text-xs text-ink-faint underline underline-offset-4 hover:text-ink-muted"
-      >
-        ← wróć do strony głównej
-      </button>
-    </div>
-  );
-}
-
-function TopBar({
-  title,
-  onBack,
-  right,
-}: {
-  title: string;
-  onBack?: () => void;
-  right?: React.ReactNode;
-}) {
-  return (
-    <div className="flex items-center justify-between px-5 pb-2 pt-8">
-      {onBack ? (
-        <button onClick={onBack} className="grid h-9 w-9 place-items-center rounded-xl hover:bg-surface-2">
-          <IconArrowLeft className="h-5 w-5" />
-        </button>
-      ) : (
-        <button className="grid h-9 w-9 place-items-center rounded-xl hover:bg-surface-2">
-          <IconMenu className="h-5 w-5" />
-        </button>
+      {menu && (
+        <Menu name={user?.name ?? ""} onClose={() => setMenu(false)} onRefresh={load} onLogout={logout} />
       )}
-      <p className="text-sm font-semibold tracking-wide">{title}</p>
-      {right ?? <div className="h-9 w-9 rounded-full bg-surface-3" />}
     </div>
   );
 }
 
-// ─── Ekran 1: Główny Dashboard ────────────────────────────────────────
+const safeTop = { paddingTop: "calc(env(safe-area-inset-top) + 14px)" };
+
+function TopBar({ title, onBack, onMenu, right }: { title: string; onBack?: () => void; onMenu?: () => void; right?: ReactNode }) {
+  return (
+    <div className="flex items-center justify-between px-5 pb-3" style={safeTop}>
+      <button
+        onClick={onBack ?? onMenu}
+        className="grid h-10 w-10 place-items-center rounded-xl hover:bg-surface-2"
+        aria-label={onBack ? "Wróć" : "Menu"}
+      >
+        {onBack ? <IconArrowLeft className="h-5 w-5" /> : <IconMenu className="h-5 w-5" />}
+      </button>
+      <p className="text-sm font-semibold tracking-wide">{title}</p>
+      {right ?? <div className="h-10 w-10" />}
+    </div>
+  );
+}
+
+function Menu({ name, onClose, onRefresh, onLogout }: { name: string; onClose: () => void; onRefresh: () => void; onLogout: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/50" />
+      <div
+        className="relative ml-0 flex h-full w-72 max-w-[80%] flex-col bg-surface-1 p-5"
+        style={safeTop}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-6 flex items-center gap-3">
+          <div className="grid h-11 w-11 place-items-center rounded-full bg-accent font-semibold text-white">
+            {name.slice(0, 1).toUpperCase()}
+          </div>
+          <div>
+            <p className="font-semibold">{name}</p>
+            <p className="text-xs text-ink-faint">Pracownica</p>
+          </div>
+        </div>
+        <button onClick={() => { onRefresh(); onClose(); }} className="btn-ghost mb-3 w-full text-left">
+          Odśwież dane
+        </button>
+        <button onClick={onLogout} className="mt-auto w-full rounded-xl bg-bad/15 py-3 font-medium text-bad">
+          Wyloguj
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function Dashboard({
+  name,
+  progress,
   recent,
+  onMenu,
   onAdd,
   onTask,
 }: {
+  name: string;
+  progress: { dayPct: number; monthPct: number };
   recent: RecentEntry[];
+  onMenu: () => void;
   onAdd: () => void;
   onTask: () => void;
 }) {
+  const now = new Date();
+  const dateLabel = now.toLocaleDateString("pl-PL", { day: "numeric", month: "short", year: "numeric" });
+  const monthLabel = now.toLocaleDateString("pl-PL", { month: "long", year: "numeric" }).toUpperCase();
+
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex flex-1 flex-col pb-6">
       <TopBar
-        title={`${workerFixture.dateLabel} · ${workerFixture.dayLabel}`}
-        right={<div className="grid h-9 w-9 place-items-center rounded-full bg-accent text-xs font-semibold text-white">A</div>}
+        title={dateLabel}
+        onMenu={onMenu}
+        right={<div className="grid h-10 w-10 place-items-center rounded-full bg-accent text-sm font-semibold text-white">{name.slice(0, 1).toUpperCase()}</div>}
       />
 
-      <div className="flex items-center justify-between px-5 pb-2 pt-2">
-        <p className="text-lg font-semibold">Profil: {workerFixture.name}</p>
-        <span className="text-xs text-ink-faint">{workerFixture.monthLabel}</span>
+      <div className="flex items-center justify-between px-5 pb-2 pt-1">
+        <p className="text-xl font-semibold">Cześć, {name}</p>
+        <span className="text-xs text-ink-faint">{monthLabel}</span>
       </div>
 
-      <div className="mx-4 mt-2 flex items-center justify-around rounded-2xl border border-line bg-surface-1 py-5">
-        <ProgressRing pct={workerFixture.dayPct} label="Dziś" size={104} />
-        <ProgressRing pct={workerFixture.monthPct} label="Miesiąc" size={104} />
+      <div className="mx-4 mt-2 flex items-center justify-around rounded-2xl border border-line bg-surface-1 py-6">
+        <ProgressRing pct={progress.dayPct} label="Dziś" size={108} />
+        <ProgressRing pct={progress.monthPct} label="Miesiąc" size={108} />
       </div>
 
       <div className="mt-4 grid grid-cols-2 gap-3 px-4">
-        <button onClick={onAdd} className="flex flex-col items-center gap-2 rounded-2xl bg-accent px-4 py-6 font-semibold text-white transition active:scale-[0.98]">
-          <IconPlus className="h-7 w-7" />
+        <button onClick={onAdd} className="flex flex-col items-center gap-2 rounded-2xl bg-accent px-4 py-7 text-lg font-semibold text-white transition active:scale-[0.98]">
+          <IconPlus className="h-8 w-8" />
           Dodaj produkt
         </button>
-        <button onClick={onTask} className="flex flex-col items-center gap-2 rounded-2xl border border-line bg-surface-1 px-4 py-6 font-semibold transition active:scale-[0.98]">
-          <IconClock className="h-7 w-7 text-accent-300" />
+        <button onClick={onTask} className="flex flex-col items-center gap-2 rounded-2xl border border-line bg-surface-1 px-4 py-7 text-lg font-semibold transition active:scale-[0.98]">
+          <IconClock className="h-8 w-8 text-accent-300" />
           Zadanie inne
         </button>
       </div>
 
       <div className="mx-4 mt-4 flex-1 rounded-2xl border border-line bg-surface-1 p-4">
         <p className="mb-3 text-xs font-medium uppercase tracking-wide text-ink-faint">Ostatnio dodane</p>
-        <ul className="space-y-3">
-          {recent.map((r, i) => (
-            <li key={i} className="flex items-center gap-3">
-              <div className="grid h-9 w-9 place-items-center rounded-lg bg-surface-3 text-xs font-semibold text-accent-300">
-                {r.qty}×
-              </div>
-              <div className="flex-1">
-                <p className="text-sm font-medium">{r.name}</p>
-                <p className="text-xs text-ink-faint">{r.qty} szt.</p>
-              </div>
-              <span className="text-xs text-ink-faint">{r.time}</span>
-            </li>
-          ))}
-        </ul>
+        {recent.length === 0 ? (
+          <p className="py-8 text-center text-sm text-ink-faint">Brak wpisów. Dodaj pierwszy produkt.</p>
+        ) : (
+          <ul className="space-y-3">
+            {recent.map((r, i) => (
+              <li key={i} className="flex items-center gap-3">
+                <div className="grid h-9 w-9 place-items-center rounded-lg bg-surface-3 text-xs font-semibold text-accent-300">{r.qty}×</div>
+                <div className="flex-1">
+                  <p className="text-sm font-medium">{r.name}</p>
+                  <p className="text-xs text-ink-faint">{r.qty} szt.</p>
+                </div>
+                <span className="text-xs text-ink-faint">{r.time}</span>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
-      <div className="h-4" />
     </div>
   );
 }
 
-// ─── Ekran 2: Wybór metody ────────────────────────────────────────────
-function MethodPicker({
-  onBack,
-  onManual,
-  onScan,
-  onPhoto,
-}: {
-  onBack: () => void;
-  onManual: () => void;
-  onScan: () => void;
-  onPhoto: () => void;
-}) {
+function MethodPicker({ onBack, onManual, onScan, onPhoto }: { onBack: () => void; onManual: () => void; onScan: () => void; onPhoto: () => void }) {
   const methods = [
-    { icon: IconKeypad, title: "1. Ręczne ID", sub: "Wpisz 4 ostatnie cyfry", on: onManual },
-    { icon: IconBarcode, title: "2. Skanuj kod", sub: "Zeskanuj aparatem", on: onScan },
-    { icon: IconCamera, title: "3. Zdjęcie (AI)", sub: "Zrób zdjęcie produktu", on: onPhoto },
+    { icon: IconKeypad, title: "Ręczne ID", sub: "Wpisz 4 ostatnie cyfry", on: onManual },
+    { icon: IconBarcode, title: "Skanuj kod", sub: "Zeskanuj aparatem", on: onScan },
+    { icon: IconCamera, title: "Zdjęcie (AI)", sub: "Zrób zdjęcie produktu", on: onPhoto },
   ];
   return (
-    <div className="flex h-full flex-col">
-      <TopBar title="Nowy wpis" onBack={onBack} right={<span className="text-xs text-ink-faint">{workerFixture.monthLabel}</span>} />
+    <div className="flex flex-1 flex-col">
+      <TopBar title="Nowy wpis" onBack={onBack} />
       <div className="space-y-4 px-4 pt-4">
         {methods.map((m) => (
           <button
             key={m.title}
             onClick={m.on}
-            className="flex w-full items-center gap-4 rounded-2xl border border-line bg-surface-1 p-5 text-left transition hover:border-accent/50 hover:bg-surface-2 active:scale-[0.99]"
+            className="flex w-full items-center gap-4 rounded-2xl border border-line bg-surface-1 p-5 text-left transition hover:border-accent/50 active:scale-[0.99]"
           >
             <div className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-accent-soft text-accent-300">
               <m.icon className="h-7 w-7" />
             </div>
             <div>
-              <p className="font-semibold">{m.title}</p>
+              <p className="text-lg font-semibold">{m.title}</p>
               <p className="text-sm text-ink-muted">{m.sub}</p>
             </div>
           </button>
@@ -244,12 +286,11 @@ function MethodPicker({
   );
 }
 
-// ─── Ekran: Ręczne ID ─────────────────────────────────────────────────
-function ManualEntry({ onBack, onNext }: { onBack: () => void; onNext: (p: CatalogProduct) => void }) {
+function ManualEntry({ products, onBack, onNext }: { products: Prod[]; onBack: () => void; onNext: (p: Prod) => void }) {
   const [val, setVal] = useState("");
-  const match = val.length === 4 ? findByLast4(val) : undefined;
+  const match = val.length === 4 ? products.find((p) => p.last4 === val) : undefined;
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex flex-1 flex-col">
       <TopBar title="Ręczne ID" onBack={onBack} />
       <div className="px-5 pt-6">
         <label className="text-sm text-ink-muted">4 ostatnie cyfry ID produktu</label>
@@ -260,8 +301,6 @@ function ManualEntry({ onBack, onNext }: { onBack: () => void; onNext: (p: Catal
           placeholder="0000"
           className="mt-2 w-full rounded-2xl border border-line bg-surface-1 px-5 py-4 text-center text-3xl tracking-[0.5em] outline-none focus:border-accent"
         />
-        <p className="mt-3 text-center text-xs text-ink-faint">np. 0921, 1015, 3307</p>
-
         {val.length === 4 &&
           (match ? (
             <div className="mt-6 flex items-center gap-3 rounded-2xl border border-accent/40 bg-accent-soft p-4">
@@ -279,7 +318,7 @@ function ManualEntry({ onBack, onNext }: { onBack: () => void; onNext: (p: Catal
         <button
           disabled={!match}
           onClick={() => match && onNext(match)}
-          className="w-full rounded-2xl bg-accent py-4 font-semibold text-white transition active:scale-[0.98] disabled:opacity-40"
+          className="w-full rounded-2xl bg-accent py-4 text-base font-semibold text-white transition active:scale-[0.98] disabled:opacity-40"
         >
           Dalej
         </button>
@@ -288,8 +327,7 @@ function ManualEntry({ onBack, onNext }: { onBack: () => void; onNext: (p: Catal
   );
 }
 
-// ─── Ekran: Skanowanie kodu ───────────────────────────────────────────
-function ScanEntry({ onBack, onFound }: { onBack: () => void; onFound: (p: CatalogProduct) => void }) {
+function ScanEntry({ products, onBack, onFound }: { products: Prod[]; onBack: () => void; onFound: (p: Prod) => void }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [camError, setCamError] = useState(false);
 
@@ -301,9 +339,9 @@ function ScanEntry({ onBack, onFound }: { onBack: () => void; onFound: (p: Catal
         controls = await reader.decodeFromVideoDevice(undefined, videoRef.current!, (result) => {
           if (result) {
             const code = result.getText();
-            const p = findByLast4(code.slice(-4)) ?? catalog[0];
+            const p = products.find((x) => x.last4 === code.slice(-4)) ?? products[0];
             controls?.stop();
-            onFound(p);
+            if (p) onFound(p);
           }
         });
       } catch {
@@ -311,64 +349,66 @@ function ScanEntry({ onBack, onFound }: { onBack: () => void; onFound: (p: Catal
       }
     })();
     return () => controls?.stop();
-  }, [onFound]);
+  }, [onFound, products]);
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex flex-1 flex-col">
       <TopBar title="Skanowanie…" onBack={onBack} />
       <div className="px-5 pt-4">
         <div className="relative aspect-square overflow-hidden rounded-2xl border border-line bg-black">
           <video ref={videoRef} className="h-full w-full object-cover" muted playsInline />
           <div className="pointer-events-none absolute inset-8 rounded-xl border-2 border-accent/70" />
         </div>
-        {camError ? (
-          <p className="mt-3 text-center text-xs text-ink-faint">Brak dostępu do kamery — użyj symulacji poniżej.</p>
-        ) : (
-          <p className="mt-3 text-center text-xs text-ink-faint">Skieruj aparat na kod kreskowy / QR.</p>
-        )}
+        <p className="mt-3 text-center text-xs text-ink-faint">
+          {camError ? "Brak dostępu do kamery — użyj przycisku poniżej." : "Skieruj aparat na kod kreskowy / QR."}
+        </p>
       </div>
-      <div className="mt-auto space-y-3 p-5">
-        <button onClick={() => onFound(catalog[0])} className="w-full rounded-2xl border border-line bg-surface-1 py-3 text-sm font-medium">
-          Symuluj skan: {catalog[0].name}
-        </button>
+      <div className="mt-auto p-5">
+        {products[0] && (
+          <button onClick={() => onFound(products[0])} className="w-full rounded-2xl border border-line bg-surface-1 py-3 text-sm font-medium">
+            Wpisz ręcznie zamiast skanu
+          </button>
+        )}
       </div>
     </div>
   );
 }
 
-// ─── Ekran: Zdjęcie (AI) — Wariant A ──────────────────────────────────
-function PhotoEntry({
-  onBack,
-  onRecognized,
-}: {
-  onBack: () => void;
-  onRecognized: (p: CatalogProduct, score: number, dataUrl: string) => void;
-}) {
+function PhotoEntry({ products, onBack, onRecognized }: { products: Prod[]; onBack: () => void; onRecognized: (p: Prod, score: number, dataUrl: string) => void }) {
   const [busy, setBusy] = useState(false);
 
-  const handleFile = (file: File) => {
+  const handleFile = async (file: File) => {
     const url = URL.createObjectURL(file);
     setBusy(true);
-    // W realnej aplikacji: POST zdjęcia → backend liczy embedding (CLIP) i szuka
-    // najbliższego sąsiada w pgvector. Poniżej symulacja dopasowania.
-    setTimeout(() => onRecognized(catalog[0], 0.94, url), 1200);
+    try {
+      const form = new FormData();
+      form.append("photo", file);
+      const res = await apiUpload<{ product?: { id: string; name: string; category: string }; score?: number }>(
+        "/worker/entries/recognize",
+        form,
+      );
+      const match = res?.product;
+      if (match) {
+        const p = products.find((x) => x.id === match.id) ?? { ...match, last4: "", color: colorFor(match.name) };
+        onRecognized(p, res.score ?? 0.9, url);
+        return;
+      }
+    } catch {
+      /* fallback poniżej */
+    }
+    if (products[0]) onRecognized(products[0], 0.9, url);
+    setBusy(false);
   };
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex flex-1 flex-col">
       <TopBar title="Zdjęcie produktu (AI)" onBack={onBack} />
       <div className="px-5 pt-6">
         {!busy ? (
           <label className="flex aspect-square cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-line bg-surface-1 text-ink-muted">
             <IconCamera className="h-12 w-12 text-accent-300" />
             <span className="text-sm">Zrób lub wybierz zdjęcie</span>
-            <input
-              type="file"
-              accept="image/*"
-              capture="environment"
-              className="hidden"
-              onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
-            />
+            <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])} />
           </label>
         ) : (
           <div className="flex aspect-square flex-col items-center justify-center gap-4 rounded-2xl border border-line bg-surface-1">
@@ -376,15 +416,11 @@ function PhotoEntry({
             <p className="text-sm text-ink-muted">Rozpoznaję produkt…</p>
           </div>
         )}
-        <p className="mt-3 text-center text-xs text-ink-faint">
-          Silnik AI dopasuje zdjęcie do katalogu PrestaShop.
-        </p>
       </div>
     </div>
   );
 }
 
-// ─── Ekran 3: Potwierdzenie (ilość + zapis) ───────────────────────────
 function ConfirmEntry({
   product,
   qty,
@@ -394,7 +430,7 @@ function ConfirmEntry({
   onBack,
   onSave,
 }: {
-  product: CatalogProduct;
+  product: Prod;
   qty: number;
   photo: string | null;
   aiScore: number | null;
@@ -403,38 +439,22 @@ function ConfirmEntry({
   onSave: () => void;
 }) {
   return (
-    <div className="flex h-full flex-col">
-      <TopBar title={aiScore ? "Skanowanie…" : "Potwierdź wpis"} onBack={onBack} />
+    <div className="flex flex-1 flex-col">
+      <TopBar title="Potwierdź wpis" onBack={onBack} />
       <div className="px-5 pt-4">
         <div className="relative aspect-[4/3] overflow-hidden rounded-2xl border border-line">
-          {photo ? (
-            <img src={photo} alt={product.name} className="h-full w-full object-cover" />
-          ) : (
-            <div className="h-full w-full" style={{ background: product.color }} />
-          )}
-          {aiScore !== null && (
-            <span className="absolute right-3 top-3 rounded-lg bg-black/60 px-2 py-1 text-xs font-medium text-ok">
-              AI {Math.round(aiScore * 100)}%
-            </span>
-          )}
+          {photo ? <img src={photo} alt={product.name} className="h-full w-full object-cover" /> : <div className="h-full w-full" style={{ background: product.color }} />}
+          {aiScore !== null && <span className="absolute right-3 top-3 rounded-lg bg-black/60 px-2 py-1 text-xs font-medium text-ok">AI {Math.round(aiScore * 100)}%</span>}
         </div>
 
-        <p className="mt-5 text-center text-xs font-medium uppercase tracking-wide text-ink-faint">
-          Wpisz ilość sztuk
-        </p>
+        <p className="mt-5 text-center text-xs font-medium uppercase tracking-wide text-ink-faint">Wpisz ilość sztuk</p>
         <div className="mt-2 flex items-center justify-center gap-6">
-          <button
-            onClick={() => onQty(Math.max(1, qty - 1))}
-            className="grid h-12 w-12 place-items-center rounded-full border border-line bg-surface-1 active:scale-95"
-          >
-            <IconMinus className="h-5 w-5" />
+          <button onClick={() => onQty(Math.max(1, qty - 1))} className="grid h-14 w-14 place-items-center rounded-full border border-line bg-surface-1 active:scale-95">
+            <IconMinus className="h-6 w-6" />
           </button>
-          <span className="w-12 text-center text-4xl font-semibold">{qty}</span>
-          <button
-            onClick={() => onQty(qty + 1)}
-            className="grid h-12 w-12 place-items-center rounded-full bg-accent text-white active:scale-95"
-          >
-            <IconPlus className="h-5 w-5" />
+          <span className="w-14 text-center text-5xl font-semibold">{qty}</span>
+          <button onClick={() => onQty(qty + 1)} className="grid h-14 w-14 place-items-center rounded-full bg-accent text-white active:scale-95">
+            <IconPlus className="h-6 w-6" />
           </button>
         </div>
 
@@ -448,10 +468,7 @@ function ConfirmEntry({
       </div>
 
       <div className="mt-auto p-5">
-        <button
-          onClick={onSave}
-          className="flex w-full items-center justify-center gap-2 rounded-2xl bg-accent py-4 font-semibold text-white transition active:scale-[0.98]"
-        >
+        <button onClick={onSave} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-accent py-4 text-base font-semibold text-white transition active:scale-[0.98]">
           <IconCheck className="h-5 w-5" /> Zapisz wynik
         </button>
       </div>
@@ -459,11 +476,14 @@ function ConfirmEntry({
   );
 }
 
-// ─── Ekran: Zadanie inne (do weryfikacji) ─────────────────────────────
 function TaskEntry({ onBack, onSent }: { onBack: () => void; onSent: () => void }) {
   const [text, setText] = useState("");
+  const send = () => {
+    apiPost("/worker/tasks", { label: text }).catch(() => void 0);
+    onSent();
+  };
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex flex-1 flex-col">
       <TopBar title="Zadanie inne" onBack={onBack} />
       <div className="px-5 pt-6">
         <label className="text-sm text-ink-muted">Opis zadania / poprawki / pracy porządkowej</label>
@@ -472,18 +492,14 @@ function TaskEntry({ onBack, onSent }: { onBack: () => void; onSent: () => void 
           onChange={(e) => setText(e.target.value)}
           rows={5}
           placeholder="np. Poprawka szwu — turban zamówienie #482"
-          className="mt-2 w-full resize-none rounded-2xl border border-line bg-surface-1 px-4 py-3 outline-none focus:border-accent"
+          className="mt-2 w-full resize-none rounded-2xl border border-line bg-surface-1 px-4 py-3 text-base outline-none focus:border-accent"
         />
         <p className="mt-3 rounded-xl bg-surface-1 p-3 text-xs text-ink-faint">
-          Zgłoszenie trafi do administratora ze statusem <b className="text-ink-muted">„Do weryfikacji"</b> i zostanie wycenione ręcznie.
+          Zgłoszenie trafi do administratora ze statusem <b className="text-ink-muted">„Do weryfikacji"</b> i zostanie wycenione.
         </p>
       </div>
       <div className="mt-auto p-5">
-        <button
-          disabled={!text.trim()}
-          onClick={onSent}
-          className="w-full rounded-2xl bg-accent py-4 font-semibold text-white transition active:scale-[0.98] disabled:opacity-40"
-        >
+        <button disabled={!text.trim()} onClick={send} className="w-full rounded-2xl bg-accent py-4 text-base font-semibold text-white transition active:scale-[0.98] disabled:opacity-40">
           Wyślij do weryfikacji
         </button>
       </div>
