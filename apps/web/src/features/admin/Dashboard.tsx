@@ -32,7 +32,7 @@ export function Dashboard() {
   return (
     <>
       <Topbar data={data} />
-      <div className="flex-1 overflow-y-auto p-6">
+      <div className="flex-1 overflow-y-auto p-4 sm:p-6">
         <div className="grid gap-5 xl:grid-cols-3">
           <NormCard daily={data.norm.dailyPct} monthly={data.norm.monthlyPct} />
           <EmployeesCard data={data} />
@@ -52,23 +52,20 @@ export function Dashboard() {
 
 function Topbar({ data }: { data: DashboardData }) {
   return (
-    <header className="flex items-center justify-between border-b border-line px-6 py-4">
-      <div>
-        <h1 className="text-xl font-semibold">Dzisiaj ({data.dateLabel})</h1>
+    <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-4 sm:px-6">
+      <div className="min-w-0">
+        <h1 className="text-lg font-semibold sm:text-xl">Dzisiaj ({data.dateLabel})</h1>
         <p className="text-sm text-ink-faint">Łączna produkcja: {data.todayUnits} szt.</p>
       </div>
-      <div className="flex items-center gap-4">
+      <div className="flex flex-wrap items-center gap-2 sm:gap-3">
         <span className="rounded-xl border border-line bg-surface-1 px-3 py-2 text-sm">
-          Aktywne pracownice <b className="text-ink">{data.activeWorkers}</b>
+          Aktywne <b className="text-ink">{data.activeWorkers}</b>
         </span>
         <span className="flex items-center gap-2 rounded-xl border border-line bg-surface-1 px-3 py-2 text-sm">
           <span className="h-2 w-2 rounded-full bg-ok" />
-          API Synchro: <b className="text-ok">Sukces</b>
-          <span className="text-ink-faint">({data.lastSync.agoText})</span>
+          <b className="text-ok">Sukces</b>
+          <span className="hidden text-ink-faint sm:inline">({data.lastSync.agoText})</span>
         </span>
-        <div className="grid h-9 w-9 place-items-center rounded-full bg-surface-3 text-xs font-semibold">
-          A
-        </div>
       </div>
     </header>
   );
