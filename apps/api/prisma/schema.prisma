@@ -2,14 +2,12 @@
 // PostgreSQL + pgvector (embeddingi zdjęć produktów dla modułu AI).
 
 generator client {
-  provider        = "prisma-client-js"
-  previewFeatures = ["postgresqlExtensions"]
+  provider = "prisma-client-js"
 }
 
 datasource db {
-  provider   = "postgresql"
-  url        = env("DATABASE_URL")
-  extensions = [vector]
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 // ─── Użytkownicy i role ──────────────────────────────────────────────
@@ -72,8 +70,7 @@ model Product {
   categoryId  String
   // Nadpisanie przelicznika normy dla pojedynczego produktu (override).
   normPctOverride Int?
-  // Embedding zdjęcia (CLIP) do dopasowania AI — wymiar zależny od modelu.
-  embedding   Unsupported("vector(512)")?
+  // (Moduł AI: embeddingi zdjęć wymagają rozszerzenia pgvector — włączane osobno.)
   entries     ProductionEntry[]
   createdAt   DateTime          @default(now())
   updatedAt   DateTime          @updatedAt

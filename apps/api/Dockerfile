@@ -24,6 +24,6 @@ COPY --from=build /app/apps/api/dist ./apps/api/dist
 COPY --from=build /app/apps/api/package.json ./apps/api/
 COPY --from=build /app/apps/api/prisma ./apps/api/prisma
 EXPOSE 3000
-# Migracja schematu + seed kont (idempotentny) + start.
-# db:push toleruje istniejącą bazę; jeśli seed już był — pomija się sam.
-CMD sh -c "npm run db:push -w @sep/api && npm run db:seed -w @sep/api && node apps/api/dist/main.js"
+# Migracja schematu + seed (idempotentny). Błędy nie zatrzymują startu serwera,
+# żeby /api/health zawsze odpowiadało (łatwiejsza diagnostyka niż crash-loop).
+CMD sh -c "npm run db:push -w @sep/api || echo 'UWAGA: db:push nieudane'; npm run db:seed -w @sep/api || echo 'UWAGA: seed nieudany'; node apps/api/dist/main.js"
