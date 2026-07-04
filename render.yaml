@@ -1,14 +1,15 @@
 # Blueprint wdrożenia (Render.com) — baza + API + PWA jednym plikiem.
-# Na Render: New → Blueprint → wskaż to repo → Apply.
+# Na Render: New → Blueprint → wskaż repo BOZEK → Apply.
+# Adresy między usługami wpinają się automatycznie (fromService) — nic nie trzeba ręcznie wpisywać.
 databases:
-  - name: sep-db
+  - name: bozek-db
     plan: free
     postgresMajorVersion: "16"
 
 services:
   # ─── Backend API (NestJS, Docker) ───────────────────────────────
   - type: web
-    name: sep-api
+    name: bozek-api
     runtime: docker
     dockerfilePath: ./apps/api/Dockerfile
     dockerContext: .
@@ -18,7 +19,7 @@ services:
     envVars:
       - key: DATABASE_URL
         fromDatabase:
-          name: sep-db
+          name: bozek-db
           property: connectionString
       - key: JWT_ACCESS_SECRET
         generateValue: true
@@ -26,14 +27,18 @@ services:
         generateValue: true
       - key: PORT
         value: "3000"
-      - key: WEB_ORIGIN
-        value: https://sep-web.onrender.com
       - key: AUTO_LOGOUT_HOUR
         value: "18"
       - key: TZ
         value: Europe/Warsaw
       - key: AI_PROVIDER
         value: local
+      # Adres frontu (CORS) — pobierany automatycznie z usługi PWA
+      - key: WEB_ORIGIN
+        fromService:
+          type: web
+          name: bozek-web
+          property: host
       - key: PRESTASHOP_API_URL
         sync: false # uzupełnij w panelu Render (lub zostaw — sync po prostu nie zadziała)
       - key: PRESTASHOP_API_KEY
@@ -41,13 +46,17 @@ services:
 
   # ─── Frontend PWA (statyczny) ───────────────────────────────────
   - type: web
-    name: sep-web
+    name: bozek-web
     runtime: static
     buildCommand: npm install && npm run build -w @sep/shared && npm run build -w @sep/web
     staticPublishPath: ./apps/web/dist
     envVars:
+      # Adres backendu — pobierany automatycznie z usługi API
       - key: VITE_API_URL
-        value: https://sep-api.onrender.com/api
+        fromService:
+          type: web
+          name: bozek-api
+          property: host
     routes:
       - type: rewrite
         source: /*

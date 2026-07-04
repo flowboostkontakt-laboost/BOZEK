@@ -14,8 +14,12 @@ async function bootstrap() {
     new ValidationPipe({ whitelist: true, transform: true, forbidNonWhitelisted: true }),
   );
 
-  // CORS dla frontu (panel admina + PWA)
-  const origins = (process.env.WEB_ORIGIN ?? "http://localhost:5173").split(",");
+  // CORS dla frontu (panel admina + PWA). WEB_ORIGIN może być hostem bez schematu
+  // (Render podaje host) — normalizujemy do https://.
+  const origins = (process.env.WEB_ORIGIN ?? "http://localhost:5173")
+    .split(",")
+    .map((o) => o.trim())
+    .map((o) => (o.startsWith("http") ? o : `https://${o}`));
   app.enableCors({ origin: origins, credentials: true });
 
   const port = Number(process.env.PORT ?? 3000);

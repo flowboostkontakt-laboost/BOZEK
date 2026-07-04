@@ -1,8 +1,11 @@
 import { useEffect, useState } from "react";
 
-// W produkcji front i backend są na osobnych domenach → VITE_API_URL=https://twoj-api/api
-// W dev używamy proxy Vite (/api → localhost:3000).
-const BASE = import.meta.env.VITE_API_URL ?? "/api";
+// W produkcji front i backend są na osobnych domenach. VITE_API_URL może być
+// pełnym URL-em albo samą nazwą hosta (Render podaje host) — normalizujemy.
+// W dev (brak zmiennej) używamy proxy Vite: /api → localhost:3000.
+const raw = import.meta.env.VITE_API_URL;
+const origin = raw ? (raw.startsWith("http") ? raw : `https://${raw}`) : "";
+const BASE = origin ? `${origin.replace(/\/$/, "")}/api` : "/api";
 
 export function getToken(): string | null {
   return localStorage.getItem("accessToken");
