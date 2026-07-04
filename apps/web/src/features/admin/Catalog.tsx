@@ -14,25 +14,30 @@ export function Catalog() {
 
   return (
     <PageShell title="Katalog Produktów" subtitle="Przeliczniki % normy dla kategorii (synchronizacja z PrestaShop)">
-      <section className="card p-5">
+      <section className="card p-4 sm:p-5">
         <h2 className="mb-4 text-sm font-medium text-ink-muted">Kategorie i przeliczniki</h2>
         <div className="space-y-3">
           {cats.map((c) => (
-            <div key={c.id} className="flex items-center gap-4 rounded-xl border border-line bg-surface-1 p-4">
-              <span className="w-40 font-medium">{c.name}</span>
-              <input
-                type="range"
-                min={0}
-                max={200}
-                value={c.normPct}
-                onChange={(e) => setPct(c.id, +e.target.value)}
-                onMouseUp={() => save(c)}
-                className="flex-1 accent-accent"
-              />
-              <span className="w-16 text-right font-semibold text-accent-300">{c.normPct}%</span>
-              <button onClick={() => save(c)} className="rounded-lg border border-line px-3 py-1.5 text-xs hover:bg-surface-2">
-                Zapisz
-              </button>
+            <div key={c.id} className="rounded-xl border border-line bg-surface-1 p-4">
+              <div className="flex items-center justify-between">
+                <span className="font-medium">{c.name}</span>
+                <span className="tabular-nums text-lg font-semibold text-accent-300">{c.normPct}%</span>
+              </div>
+              <div className="mt-3 flex items-center gap-3">
+                <input
+                  type="range"
+                  min={0}
+                  max={200}
+                  value={c.normPct}
+                  onChange={(e) => setPct(c.id, +e.target.value)}
+                  onMouseUp={() => save(c)}
+                  onTouchEnd={() => save(c)}
+                  className="h-2 flex-1 accent-accent"
+                />
+                <button onClick={() => save(c)} className="shrink-0 rounded-lg border border-line px-3 py-1.5 text-xs hover:bg-surface-2">
+                  Zapisz
+                </button>
+              </div>
             </div>
           ))}
         </div>

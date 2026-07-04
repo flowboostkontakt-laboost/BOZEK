@@ -7,6 +7,9 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: "autoUpdate",
+      // Usuwa istniejący service worker i jego cache na wszystkich urządzeniach —
+      // apka ładuje treść zawsze świeżo z serwera (koniec „starej wersji" po aktualizacji).
+      selfDestroying: true,
       includeAssets: ["apple-touch-icon.png", "favicon.png"],
       manifest: {
         name: "Ewidencja Produkcji — Micro-Workshop",

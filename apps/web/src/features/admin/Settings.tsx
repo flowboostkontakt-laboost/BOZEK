@@ -29,12 +29,12 @@ export function Settings() {
               </div>
             ))}
           </div>
-          <div className="mt-4 flex items-end gap-3">
+          <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end">
             <label className="flex-1"><span className="mb-1 block text-xs text-ink-muted">Próg (%)</span>
-              <input type="number" value={prog} onChange={(e) => setProg(+e.target.value)} className="w-full rounded-lg border border-line bg-surface-1 px-3 py-2 text-sm outline-none focus:border-accent" /></label>
+              <input type="number" value={prog} onChange={(e) => setProg(+e.target.value)} className="inp" /></label>
             <label className="flex-1"><span className="mb-1 block text-xs text-ink-muted">Premia (zł)</span>
-              <input type="number" value={kwota} onChange={(e) => setKwota(+e.target.value)} className="w-full rounded-lg border border-line bg-surface-1 px-3 py-2 text-sm outline-none focus:border-accent" /></label>
-            <button onClick={add} className="btn-primary flex items-center gap-2 !py-2"><IconPlus className="h-4 w-4" /> Dodaj</button>
+              <input type="number" value={kwota} onChange={(e) => setKwota(+e.target.value)} className="inp" /></label>
+            <button onClick={add} className="btn-primary flex items-center justify-center gap-2 !py-2.5"><IconPlus className="h-4 w-4" /> Dodaj</button>
           </div>
         </section>
 

@@ -30,38 +30,70 @@ export function Employees() {
     >
       {open && <AddForm onAdd={add} onCancel={() => setOpen(false)} />}
       <section className="card overflow-hidden">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-left text-xs uppercase tracking-wide text-ink-faint">
-              <th className="px-5 py-3 font-medium">Imię</th>
-              <th className="px-3 py-3 font-medium">Login</th>
-              <th className="px-3 py-3 font-medium">Norma bazowa</th>
-              <th className="px-3 py-3 font-medium">Etat</th>
-              <th className="px-3 py-3 font-medium">Status</th>
-              <th className="px-3 py-3 font-medium">Akcje</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => (
-              <tr key={r.id} className="border-t border-line/70">
-                <td className="px-5 py-3 font-medium">{r.name}</td>
-                <td className="px-3 py-3 text-ink-muted">{r.login}</td>
-                <td className="px-3 py-3">{r.baseNormPln.toLocaleString("pl-PL")} zł</td>
-                <td className="px-3 py-3 text-ink-muted">{r.defaultHours}h</td>
-                <td className="px-3 py-3">
-                  <span className={`rounded-md px-2 py-0.5 text-xs ${r.active ? "bg-ok/15 text-ok" : "bg-bad/15 text-bad"}`}>
-                    {r.active ? "Aktywna" : "Zablokowana"}
-                  </span>
-                </td>
-                <td className="px-3 py-3">
-                  <button onClick={() => toggle(r.id)} className="rounded-lg border border-line px-2 py-1 text-xs text-ink-muted hover:bg-surface-2">
-                    {r.active ? "Zablokuj" : "Odblokuj"}
-                  </button>
-                </td>
+        {/* Desktop: tabela */}
+        <div className="hidden overflow-x-auto lg:block">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs uppercase tracking-wide text-ink-faint">
+                <th className="px-5 py-3 font-medium">Imię</th>
+                <th className="px-3 py-3 font-medium">Login</th>
+                <th className="px-3 py-3 font-medium">Norma bazowa</th>
+                <th className="px-3 py-3 font-medium">Etat</th>
+                <th className="px-3 py-3 font-medium">Status</th>
+                <th className="px-3 py-3 font-medium">Akcje</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.id} className="border-t border-line/70">
+                  <td className="px-5 py-3 font-medium">{r.name}</td>
+                  <td className="px-3 py-3 text-ink-muted">{r.login}</td>
+                  <td className="px-3 py-3 tabular-nums">{r.baseNormPln.toLocaleString("pl-PL")} zł</td>
+                  <td className="px-3 py-3 text-ink-muted">{r.defaultHours}h</td>
+                  <td className="px-3 py-3">
+                    <span className={`rounded-md px-2 py-0.5 text-xs ${r.active ? "bg-ok/15 text-ok" : "bg-bad/15 text-bad"}`}>
+                      {r.active ? "Aktywna" : "Zablokowana"}
+                    </span>
+                  </td>
+                  <td className="px-3 py-3">
+                    <button onClick={() => toggle(r.id)} className="rounded-lg border border-line px-2 py-1 text-xs text-ink-muted hover:bg-surface-2">
+                      {r.active ? "Zablokuj" : "Odblokuj"}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Mobile: karty */}
+        <div className="divide-y divide-line/60 lg:hidden">
+          {rows.map((r) => (
+            <div key={r.id} className="flex items-center justify-between gap-3 p-4">
+              <div className="flex min-w-0 items-center gap-3">
+                <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-surface-3 text-sm font-semibold text-accent-300">
+                  {r.name.slice(0, 1)}
+                </div>
+                <div className="min-w-0">
+                  <p className="truncate font-medium">
+                    {r.name} <span className="text-xs font-normal text-ink-faint">@{r.login}</span>
+                  </p>
+                  <p className="text-xs text-ink-faint">
+                    <span className="tabular-nums">{r.baseNormPln.toLocaleString("pl-PL")} zł</span> · {r.defaultHours}h
+                  </p>
+                </div>
+              </div>
+              <div className="flex shrink-0 flex-col items-end gap-2">
+                <span className={`rounded-md px-2 py-0.5 text-[11px] ${r.active ? "bg-ok/15 text-ok" : "bg-bad/15 text-bad"}`}>
+                  {r.active ? "Aktywna" : "Zablokowana"}
+                </span>
+                <button onClick={() => toggle(r.id)} className="rounded-lg border border-line px-2.5 py-1 text-xs text-ink-muted hover:bg-surface-2">
+                  {r.active ? "Zablokuj" : "Odblokuj"}
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
       </section>
     </PageShell>
   );
