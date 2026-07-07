@@ -15,6 +15,8 @@ interface DashRow {
   trend: "up" | "down";
   premia: boolean;
   lastAction: string;
+  employeeId: string;
+  workedMinutes: number;
 }
 
 /** Buduje komplet danych dla Dashboardu admina (kształt zgodny z frontendem). */
@@ -44,7 +46,7 @@ export class DashboardService {
 
     for (let i = 0; i < employees.length; i++) {
       const e = employees[i];
-      const [day, month, last] = await Promise.all([
+      const [day, month, last, sessions] = await Promise.all([
         this.norms.dayProgress(e.id, now),
         this.norms.monthProgress(e.id, now),
         this.prisma.productionEntry.findFirst({
@@ -52,16 +54,26 @@ export class DashboardService {
           include: { product: true },
           orderBy: { createdAt: "desc" },
         }),
+        this.prisma.workSession.findMany({
+          where: { employeeId: e.id, startedAt: { gte: startDay } },
+        }),
       ]);
       dDone += day.done;
       dNorm += day.norm;
       mDone += month.done;
       mNorm += month.norm;
 
+      const workedMs = sessions.reduce(
+        (a, s) => a + ((s.endedAt ?? now).getTime() - s.startedAt.getTime()),
+        0,
+      );
+
       rows.push({
         id: 101 + i,
+        employeeId: e.id,
         name: e.name,
         hours: Number(e.defaultHours),
+        workedMinutes: Math.max(0, Math.round(workedMs / 60000)),
         normaBaza: Math.round(day.norm),
         wykonano: Math.round(day.done),
         pctDay: day.pct,

@@ -18,6 +18,27 @@ export class EmployeesController {
     });
   }
 
+  /** Wpisy pracownicy z dziś (produkty + zadania) — do rozwinięcia karty na dashboardzie. */
+  @Get(":id/entries")
+  async entries(@Param("id") id: string) {
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    const list = await this.prisma.productionEntry.findMany({
+      where: { employeeId: id, createdAt: { gte: start } },
+      include: { product: { include: { category: true } } },
+      orderBy: { createdAt: "desc" },
+    });
+    return list.map((e) => ({
+      name: e.product?.name ?? e.customLabel ?? "Zadanie",
+      qty: e.quantity,
+      category: e.product?.category.name ?? null,
+      pricePln: Number(e.product?.pricePln ?? 0),
+      valuePln: Number(e.normValuePln ?? 0),
+      isTask: !e.productId,
+      status: e.status,
+    }));
+  }
+
   @Post()
   async create(@Body() dto: CreateEmployeeDto) {
     const employee = await this.prisma.employee.create({

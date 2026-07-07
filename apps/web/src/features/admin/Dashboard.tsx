@@ -16,8 +16,21 @@ import { ProgressRing } from "../../components/ProgressRing";
 import { IconEdit, IconPlus, IconRefresh, IconTrendDown, IconTrendUp } from "../../components/icons";
 import { dashboardFixture, type DashboardData, type OperationalRow } from "../../lib/fixtures";
 import { apiGet, apiPost } from "../../lib/api";
+import { kolorPostepu } from "@sep/shared";
 
 const zl = (n: number) => n.toLocaleString("pl-PL");
+const fmtTime = (min: number) => `${Math.floor(min / 60)}h ${String(min % 60).padStart(2, "0")}m`;
+const BAR_COLOR = { danger: "#fb7185", warning: "#fbbf24", ok: "#c33a5e", success: "#34d399" } as const;
+
+interface DayEntry {
+  name: string;
+  qty: number;
+  category: string | null;
+  pricePln: number;
+  valuePln: number;
+  isTask: boolean;
+  status: string;
+}
 const GRID = "#241f22";
 const AXIS_A = "#b0a6a9";
 const AXIS_B = "#79706f";
@@ -139,102 +152,129 @@ function CategoriesCard({ data }: { data: DashboardData }) {
 
 function OperationalList({ data }: { data: DashboardData }) {
   return (
-    <section className="card overflow-hidden">
-      <h2 className="border-b border-line px-4 py-4 text-sm font-medium text-ink-muted sm:px-5">Pełna lista pracownic</h2>
-
-      {/* Desktop: tabela */}
-      <div className="hidden overflow-x-auto lg:block">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-left text-xs uppercase tracking-wide text-ink-faint">
-              <th className="px-5 py-3 font-medium">Pracownica</th>
-              <th className="px-3 py-3 font-medium">Godz.</th>
-              <th className="px-3 py-3 font-medium">Norma</th>
-              <th className="px-3 py-3 font-medium">Wykonano</th>
-              <th className="px-3 py-3 font-medium">% Dzień</th>
-              <th className="px-3 py-3 font-medium">% Mies.</th>
-              <th className="px-3 py-3 font-medium">Ostatnia akcja</th>
-              <th className="px-3 py-3 font-medium">Akcje</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.rows.map((r) => (
-              <tr key={r.id} className="border-t border-line/70">
-                <td className="px-5 py-3 font-medium">{r.name}</td>
-                <td className="px-3 py-3 tabular-nums text-ink-muted">{r.hours.toFixed(1)}</td>
-                <td className="px-3 py-3 tabular-nums text-ink-muted">{zl(r.normaBaza)} zł</td>
-                <td className="px-3 py-3 tabular-nums">{zl(r.wykonano)} zł</td>
-                <td className="px-3 py-3">
-                  <PctBadge pct={r.pctDay} trend={r.trend} premia={r.premia} />
-                </td>
-                <td className="px-3 py-3 tabular-nums text-ink-muted">{r.pctMonth}%</td>
-                <td className="px-3 py-3 text-ink-muted">{r.lastAction}</td>
-                <td className="px-3 py-3">
-                  <button className="inline-flex items-center gap-1 rounded-lg border border-line px-2 py-1 text-xs text-ink-muted transition hover:bg-surface-2">
-                    <IconEdit className="h-3.5 w-3.5" /> Edytuj
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Mobile: karty */}
-      <div className="divide-y divide-line/60 lg:hidden">
+    <section>
+      <h2 className="mb-3 px-1 text-sm font-medium text-ink-muted">Pełna lista pracownic</h2>
+      <div className="grid gap-3 xl:grid-cols-2">
         {data.rows.map((r) => (
-          <RowCard key={r.id} r={r} />
+          <EmployeeCard key={r.id} r={r} />
         ))}
       </div>
     </section>
   );
 }
 
-function RowCard({ r }: { r: OperationalRow }) {
-  const color = r.pctDay >= 100 ? "#34d399" : "#a8264a";
+function EmployeeCard({ r }: { r: OperationalRow }) {
+  const [open, setOpen] = useState(false);
+  const [entries, setEntries] = useState<DayEntry[] | null>(null);
+  const color = BAR_COLOR[kolorPostepu(r.pctDay)];
+  const worked = r.workedMinutes || 0;
+  const balance = worked - Math.round(r.hours * 60);
+
+  const toggle = () => {
+    const next = !open;
+    setOpen(next);
+    if (next && entries === null && r.employeeId) {
+      apiGet<DayEntry[]>(`/admin/employees/${r.employeeId}/entries`)
+        .then(setEntries)
+        .catch(() => setEntries([]));
+    }
+  };
+
   return (
-    <div className="p-4">
-      <div className="flex items-start justify-between gap-3">
+    <div className="card p-4">
+      <button onClick={toggle} className="flex w-full items-start justify-between gap-3 text-left">
         <div className="flex min-w-0 items-center gap-3">
-          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-surface-3 text-sm font-semibold text-accent-300">
+          <div
+            className="grid h-11 w-11 shrink-0 place-items-center rounded-full text-base font-semibold"
+            style={{ background: r.pctDay >= 100 ? "#a8264a" : "#2a2325", color: r.pctDay >= 100 ? "#fff" : "#e07089" }}
+          >
             {r.name.slice(0, 1)}
           </div>
           <div className="min-w-0">
-            <p className="truncate font-medium">{r.name}</p>
-            <p className="text-xs text-ink-faint">{r.hours.toFixed(1)} h · norma {zl(r.normaBaza)} zł</p>
+            <p className="truncate text-base font-medium">{r.name}</p>
+            <p className="text-xs text-ink-faint">Norma dnia</p>
           </div>
         </div>
         <div className="text-right">
           <span className="flex items-center justify-end gap-1">
-            <span className="text-xl font-semibold tabular-nums" style={{ color }}>{r.pctDay}%</span>
+            <span className="text-2xl font-semibold tabular-nums" style={{ color }}>{r.pctDay}%</span>
             {r.trend === "up" ? <IconTrendUp className="h-4 w-4 text-ok" /> : <IconTrendDown className="h-4 w-4 text-bad" />}
           </span>
-          <p className="text-xs text-ink-faint">mies. {r.pctMonth}%</p>
+          <p className="text-xs text-ink-muted">miesiąc {r.pctMonth}%</p>
         </div>
-      </div>
+      </button>
 
-      <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-surface-3">
+      <div className="mt-3 h-2 overflow-hidden rounded-full bg-surface-3">
         <div className="h-full rounded-full" style={{ width: `${Math.min(100, r.pctDay)}%`, background: color }} />
       </div>
 
-      <div className="mt-2.5 flex items-center justify-between text-xs">
-        <span className="text-ink-muted">
-          Wykonano <b className="tabular-nums text-ink">{zl(r.wykonano)} zł</b>
-        </span>
-        {r.premia && <span className="rounded-md bg-accent-soft px-2 py-0.5 font-medium text-accent-300">Premia!</span>}
+      <div className="mt-3 flex gap-2">
+        <div className="flex-1 rounded-xl bg-surface-2 px-3 py-2.5">
+          <p className="text-[10px] uppercase tracking-wide text-ink-faint">Plan</p>
+          <p className="tabular-nums text-sm font-medium">{r.hours}h · {zl(r.normaBaza)} zł</p>
+        </div>
+        <div className="flex-1 rounded-xl bg-surface-2 px-3 py-2.5">
+          <p className="text-[10px] uppercase tracking-wide text-ink-faint">Wykonane</p>
+          <p className="tabular-nums text-sm font-medium">{fmtTime(worked)} · {zl(r.wykonano)} zł</p>
+        </div>
       </div>
-      <p className="mt-1 truncate text-xs text-ink-faint">Ostatnio: {r.lastAction}</p>
-    </div>
-  );
-}
 
-function PctBadge({ pct, trend, premia }: { pct: number; trend: "up" | "down"; premia: boolean }) {
-  return (
-    <span className="inline-flex items-center gap-1">
-      <span className={`tabular-nums ${pct >= 100 ? "text-ok" : "text-ink"}`}>{pct}%</span>
-      {trend === "up" ? <IconTrendUp className="h-3.5 w-3.5 text-ok" /> : <IconTrendDown className="h-3.5 w-3.5 text-bad" />}
-      {premia && <span className="ml-1 rounded-md bg-accent-soft px-1.5 py-0.5 text-[10px] font-medium text-accent-300">Premia!</span>}
-    </span>
+      <div className="mt-2.5 flex items-center gap-2 rounded-xl bg-surface-2 px-3 py-2.5">
+        <span className="text-xs text-ink-muted">Bilans czasu</span>
+        <span className="ml-auto tabular-nums text-sm font-semibold" style={{ color: balance >= 0 ? "#34d399" : "#fbbf24" }}>
+          {balance >= 0 ? "+ " : "− "}{fmtTime(Math.abs(balance))}
+        </span>
+        <span className="text-[11px] text-ink-faint">{balance >= 0 ? "nadgodziny" : "do odrobienia"}</span>
+      </div>
+
+      {r.premia && (
+        <div className="mt-2.5 rounded-lg bg-accent-soft px-3 py-1.5 text-center text-xs font-medium text-accent-300">
+          Premia odblokowana
+        </div>
+      )}
+
+      {open && (
+        <div className="mt-3 border-t border-line pt-3">
+          <p className="mb-2 text-[11px] uppercase tracking-wide text-ink-faint">Uszyte / zgłoszone dziś</p>
+          {entries === null ? (
+            <p className="py-2 text-center text-xs text-ink-faint">Wczytuję…</p>
+          ) : entries.length === 0 ? (
+            <p className="py-2 text-center text-xs text-ink-faint">Brak wpisów dziś.</p>
+          ) : (
+            <ul className="space-y-2.5">
+              {entries.map((en, i) => (
+                <li key={i} className="flex items-center gap-3">
+                  <div
+                    className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-xs font-semibold tabular-nums"
+                    style={{ background: en.isTask ? "#2a2325" : "#8c3048", color: en.isTask ? "#e07089" : "#fff" }}
+                  >
+                    {en.isTask ? <IconEdit className="h-4 w-4" /> : `${en.qty}×`}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm">{en.name}</p>
+                    {en.category && <p className="text-[11px] text-ink-faint">{en.category}</p>}
+                  </div>
+                  <div className="text-right text-xs">
+                    {en.isTask ? (
+                      <span className="text-warn">{en.status === "PENDING_REVIEW" ? "do wyceny" : "—"}</span>
+                    ) : (
+                      <>
+                        <p className="tabular-nums">{en.qty} szt · {zl(en.pricePln * en.qty)} zł</p>
+                        <p className="tabular-nums text-ink-faint">norma {zl(en.valuePln)} zł</p>
+                      </>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      <button onClick={toggle} className="mt-3 w-full rounded-xl border border-line py-2 text-xs text-ink-muted transition hover:bg-surface-2">
+        {open ? "Zwiń" : "Pokaż produkty"}
+      </button>
+    </div>
   );
 }
 

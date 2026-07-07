@@ -13,8 +13,10 @@ export interface DashboardData {
 
 export interface OperationalRow {
   id: number;
+  employeeId: string;
   name: string;
   hours: number;
+  workedMinutes: number;
   normaBaza: number;
   wykonano: number;
   pctDay: number;
@@ -170,8 +172,8 @@ export const dashboardFixture: DashboardData = {
     { name: "Chusty", udzialPct: 100, sztuki: 6 },
   ],
   rows: [
-    { id: 101, name: "Ania", hours: 8, normaBaza: 1750, wykonano: 1277, pctDay: 73, pctMonth: 88, trend: "down", premia: false, lastAction: "Turban (2 szt.)" },
-    { id: 102, name: "Basia", hours: 6, normaBaza: 1312, wykonano: 1400, pctDay: 106, pctMonth: 101, trend: "up", premia: true, lastAction: "Opaska (1 szt.)" },
-    { id: 103, name: "Kasia", hours: 8, normaBaza: 2000, wykonano: 2150, pctDay: 107, pctMonth: 105, trend: "up", premia: false, lastAction: "Chusta (3 szt.)" },
+    { id: 101, employeeId: "1", name: "Ania", hours: 8, workedMinutes: 460, normaBaza: 1750, wykonano: 1277, pctDay: 73, pctMonth: 88, trend: "down", premia: false, lastAction: "Turban (2 szt.)" },
+    { id: 102, employeeId: "2", name: "Basia", hours: 6, workedMinutes: 360, normaBaza: 1312, wykonano: 1400, pctDay: 106, pctMonth: 101, trend: "up", premia: true, lastAction: "Opaska (1 szt.)" },
+    { id: 103, employeeId: "3", name: "Kasia", hours: 8, workedMinutes: 420, normaBaza: 2000, wykonano: 2150, pctDay: 107, pctMonth: 105, trend: "up", premia: false, lastAction: "Chusta (3 szt.)" },
   ],
 };
