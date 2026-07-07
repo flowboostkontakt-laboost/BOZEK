@@ -2,10 +2,10 @@ import { useState } from "react";
 import { PageShell } from "./PageShell";
 import { IconCheck } from "../../components/icons";
 import { useApiData, apiPost } from "../../lib/api";
-import { reviewFixture, type ReviewItem } from "../../lib/fixtures";
+import { type ReviewItem } from "../../lib/fixtures";
 
 export function Review() {
-  const [items, setItems] = useApiData<ReviewItem[]>("/admin/review", reviewFixture);
+  const [items, setItems] = useApiData<ReviewItem[]>("/admin/review", []);
 
   const remove = (id: string) => setItems(items.filter((i) => i.id !== id));
 

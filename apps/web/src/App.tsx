@@ -1,5 +1,5 @@
 import { type ReactNode } from "react";
-import { Link, Route, Routes } from "react-router-dom";
+import { Link, Navigate, Route, Routes } from "react-router-dom";
 import { ProgressRing } from "./components/ProgressRing";
 import { AuthProvider, useAuth } from "./lib/auth";
 import { Login } from "./features/auth/Login";
@@ -27,17 +27,9 @@ function RequireAuth({ role, children }: { role?: "ADMIN" | "WORKER"; children: 
   if (loading) return <Splash />;
   if (!user) return <Login />;
   if (role && user.role !== role) {
-    const target = user.role === "WORKER" ? "/app" : "/admin";
-    return (
-      <div className="grid min-h-screen place-items-center bg-bg p-8 text-center text-ink">
-        <div>
-          <p className="text-lg font-semibold">To konto nie ma dostępu do tej sekcji</p>
-          <Link to={target} className="btn-primary mt-5 inline-block">
-            Przejdź do swojej aplikacji
-          </Link>
-        </div>
-      </div>
-    );
+    // Konto trafiło na niewłaściwą sekcję (np. admin otwiera apkę startującą na /app)
+    // → przekieruj automatycznie do właściwej, bez komunikatu.
+    return <Navigate to={user.role === "WORKER" ? "/app" : "/admin"} replace />;
   }
   return <>{children}</>;
 }

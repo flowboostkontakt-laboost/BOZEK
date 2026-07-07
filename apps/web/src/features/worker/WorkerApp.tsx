@@ -544,14 +544,42 @@ function ConfirmEntry({
 
 function TaskEntry({ onBack, onSent }: { onBack: () => void; onSent: () => void }) {
   const [text, setText] = useState("");
-  const send = () => {
-    apiPost("/worker/tasks", { label: text }).catch(() => void 0);
-    onSent();
+  const [state, setState] = useState<"idle" | "sending" | "done" | "error">("idle");
+
+  const send = async () => {
+    setState("sending");
+    try {
+      await apiPost("/worker/tasks", { label: text.trim() });
+      setState("done");
+    } catch {
+      setState("error");
+    }
   };
+
+  if (state === "done") {
+    return (
+      <div className="flex flex-1 flex-col">
+        <TopBar title="Zadanie inne" />
+        <div className="flex flex-1 flex-col items-center justify-center px-8 text-center">
+          <div className="grid h-20 w-20 place-items-center rounded-full bg-ok/15">
+            <IconCheck className="h-10 w-10 text-ok" />
+          </div>
+          <p className="mt-5 text-xl font-semibold">Zgłoszenie wysłane</p>
+          <p className="mt-1 text-sm text-ink-muted">Trafiło do administratora „Do sprawdzenia".</p>
+        </div>
+        <div className="mt-auto px-4 pt-5" style={safeBottom}>
+          <button onClick={onSent} className="w-full rounded-2xl bg-accent py-4 text-base font-semibold text-white active:scale-[0.98]">
+            Gotowe
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-1 flex-col">
       <TopBar title="Zadanie inne" onBack={onBack} />
-      <div className="px-5 pt-6">
+      <div className="px-4 pt-6">
         <label className="text-sm text-ink-muted">Opis zadania / poprawki / pracy porządkowej</label>
         <textarea
           value={text}
@@ -561,12 +589,19 @@ function TaskEntry({ onBack, onSent }: { onBack: () => void; onSent: () => void 
           className="mt-2 w-full resize-none rounded-2xl border border-line bg-surface-1 px-4 py-3 text-base outline-none focus:border-accent"
         />
         <p className="mt-3 rounded-xl bg-surface-1 p-3 text-xs text-ink-faint">
-          Zgłoszenie trafi do administratora ze statusem <b className="text-ink-muted">„Do weryfikacji"</b> i zostanie wycenione.
+          Zgłoszenie trafi do administratora ze statusem <b className="text-ink-muted">„Do sprawdzenia"</b> i zostanie wycenione.
         </p>
+        {state === "error" && (
+          <p className="mt-3 text-sm text-bad">Nie udało się wysłać — sprawdź połączenie i spróbuj ponownie.</p>
+        )}
       </div>
       <div className="mt-auto px-4 pt-5" style={safeBottom}>
-        <button disabled={!text.trim()} onClick={send} className="w-full rounded-2xl bg-accent py-4 text-base font-semibold text-white transition active:scale-[0.98] disabled:opacity-40">
-          Wyślij do weryfikacji
+        <button
+          disabled={!text.trim() || state === "sending"}
+          onClick={send}
+          className="w-full rounded-2xl bg-accent py-4 text-base font-semibold text-white transition active:scale-[0.98] disabled:opacity-40"
+        >
+          {state === "sending" ? "Wysyłanie…" : "Wyślij do weryfikacji"}
         </button>
       </div>
     </div>
