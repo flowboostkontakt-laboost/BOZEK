@@ -7,6 +7,7 @@ interface SyncStatus {
   status: string;
   productsCount?: number;
   agoText: string;
+  message?: string;
 }
 
 export function ApiStatus() {
@@ -21,9 +22,9 @@ export function ApiStatus() {
     setBusy(true);
     try {
       await apiPost("/admin/sync/run");
-      setStatus({ ...status, agoText: "przed chwilą" });
+      setStatus({ ...status, agoText: "przed chwilą", message: undefined });
     } catch {
-      /* brak backendu — demo */
+      /* fallback UI nadal pokazuje status z API */
     }
     setBusy(false);
   };
@@ -40,6 +41,7 @@ export function ApiStatus() {
           <Row k="Ostatnia synchronizacja" v={status.agoText} />
           <Row k="Zsynchronizowane produkty" v={String(status.productsCount ?? "—")} />
           <Row k="Harmonogram" v="Codziennie o 03:00 (cron)" />
+          {status.message && <Row k="Błąd" v={status.message} />}
         </dl>
         <button onClick={sync} disabled={busy} className="btn-primary mt-6 flex items-center gap-2 disabled:opacity-50">
           <IconRefresh className={`h-[18px] w-[18px] ${busy ? "animate-spin" : ""}`} /> Wymuś synchronizację

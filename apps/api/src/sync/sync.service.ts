@@ -45,6 +45,10 @@ export class SyncService implements OnApplicationBootstrap {
   }
 
   async run(): Promise<{ status: SyncStatus; count: number }> {
+    if (!this.ps.isConfigured()) {
+      throw new Error("Brak konfiguracji PrestaShop: ustaw PRESTASHOP_API_URL i PRESTASHOP_API_KEY");
+    }
+
     const started = await this.prisma.syncLog.create({ data: { status: SyncStatus.RUNNING } });
     try {
       const [cats, prods] = await Promise.all([this.ps.fetchCategories(), this.ps.fetchProducts()]);
@@ -108,6 +112,7 @@ export class SyncService implements OnApplicationBootstrap {
       productsCount: last.productsCount,
       finishedAt: last.finishedAt,
       agoText: last.finishedAt ? timeAgo(last.finishedAt) : "w toku",
+      message: last.message,
     };
   }
 
