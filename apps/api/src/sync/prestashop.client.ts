@@ -1,5 +1,6 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
+import { parseStringPromise } from "xml2js";
 
 export interface PsCategory {
   id: string;
@@ -15,20 +16,25 @@ export interface PsProduct {
   active: boolean;
 }
 
-/** Klient PrestaShop Webservice API (format JSON, autoryzacja kluczem jako Basic Auth). */
+/** PrestaShop Webservice client. Supports JSON and XML responses. */
 @Injectable()
 export class PrestashopClient {
-  private readonly log = new Logger("PrestaShop");
-
   constructor(private readonly config: ConfigService) {}
 
   private base(): string {
     return (this.config.get<string>("PRESTASHOP_API_URL") ?? "").replace(/\/+$/, "");
   }
 
+  private authKey(): string {
+    return (this.config.get<string>("PRESTASHOP_API_KEY") ?? "").trim();
+  }
+
+  isConfigured(): boolean {
+    return this.base().length > 0 && this.authKey().length > 0;
+  }
+
   private authHeader(): string {
-    const key = this.config.get<string>("PRESTASHOP_API_KEY") ?? "";
-    return "Basic " + Buffer.from(`${key}:`).toString("base64");
+    return "Basic " + Buffer.from(`${this.authKey()}:`).toString("base64");
   }
 
   private async get<T>(path: string): Promise<T> {
@@ -36,32 +42,101 @@ export class PrestashopClient {
     const url = `${this.base()}${path}${sep}output_format=JSON`;
     const res = await fetch(url, { headers: { Authorization: this.authHeader() } });
     if (!res.ok) throw new Error(`PrestaShop ${res.status} przy ${path}`);
-    return (await res.json()) as T;
+    const body = await res.text();
+    return parsePrestashop<T>(body);
   }
 
   async fetchCategories(): Promise<PsCategory[]> {
-    const data = await this.get<{ categories?: unknown[] }>("/categories?display=full");
-    return (data.categories ?? []).map((c: any) => ({ id: String(c.id), name: lang(c.name) }));
+    const data = await this.get<unknown>("/categories?display=full");
+    return readCollection(data, ["prestashop", "categories", "category"], ["categories", "category"], ["categories"]).map((c: any) => ({
+      id: String(getField(c, "id") ?? ""),
+      name: lang(getField(c, "name")),
+    }));
   }
 
   async fetchProducts(): Promise<PsProduct[]> {
-    const data = await this.get<{ products?: unknown[] }>("/products?display=full");
-    return (data.products ?? []).map((p: any) => ({
-      id: String(p.id),
-      name: lang(p.name),
-      price: Number(p.price ?? 0),
-      categoryId: p.id_category_default ? String(p.id_category_default) : undefined,
-      barcode: p.ean13 || p.reference || undefined,
-      active: p.active === "1" || p.active === 1 || p.active === true,
+    const data = await this.get<unknown>("/products?display=full");
+    return readCollection(data, ["prestashop", "products", "product"], ["products", "product"], ["products"]).map((p: any) => ({
+      id: String(getField(p, "id") ?? ""),
+      name: lang(getField(p, "name")),
+      price: Number(text(getField(p, "price")) || 0),
+      categoryId: text(getField(p, "id_category_default")) || undefined,
+      barcode: text(getField(p, "ean13")) || text(getField(p, "reference")) || undefined,
+      active: truthy(getField(p, "active")),
     }));
   }
 }
 
-/** PrestaShop zwraca pola wielojęzyczne w różnych kształtach — wyciągamy pierwszą wartość. */
 function lang(v: unknown): string {
-  if (typeof v === "string") return v;
-  if (Array.isArray(v)) return (v[0] as any)?.value ?? "";
-  const l = (v as any)?.language;
-  if (l) return Array.isArray(l) ? l[0]?.value ?? "" : l?.value ?? "";
+  const t = text(v);
+  if (t) return t;
+  const language = (v as any)?.language;
+  if (language) return text(Array.isArray(language) ? language[0] : language);
   return "";
+}
+
+async function parsePrestashop<T>(body: string): Promise<T> {
+  const trimmed = body.trim();
+  if (!trimmed) return {} as T;
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) return JSON.parse(trimmed) as T;
+  return (await parseStringPromise(trimmed, {
+    explicitArray: false,
+    trim: true,
+    normalize: true,
+    normalizeTags: false,
+  })) as T;
+}
+
+function readCollection(root: unknown, ...paths: string[][]): any[] {
+  for (const path of paths) {
+    const value = getPath(root, path);
+    const list = asList(value);
+    if (list.length > 0) return list;
+  }
+  return [];
+}
+
+function getPath(root: unknown, path: string[]): unknown {
+  let current: any = root;
+  for (const key of path) {
+    if (current == null) return undefined;
+    current = current[key];
+  }
+  return current;
+}
+
+function asList(value: unknown): any[] {
+  if (!value) return [];
+  if (Array.isArray(value)) return value;
+  if (typeof value !== "object") return [value];
+  const rec = value as Record<string, unknown>;
+  if (Array.isArray(rec.product)) return rec.product as any[];
+  if (Array.isArray(rec.category)) return rec.category as any[];
+  const nested = Object.values(rec).find(Array.isArray);
+  if (nested) return nested as any[];
+  return [value];
+}
+
+function getField(value: unknown, key: string): unknown {
+  if (!value || typeof value !== "object") return undefined;
+  return (value as Record<string, unknown>)[key];
+}
+
+function text(v: unknown): string {
+  if (v == null) return "";
+  if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") return String(v);
+  if (Array.isArray(v)) return text(v[0]);
+  if (typeof v !== "object") return "";
+  const rec = v as Record<string, unknown>;
+  if ("_" in rec) return text(rec._);
+  if ("value" in rec) return text(rec.value);
+  const language = rec.language;
+  if (language) return text(Array.isArray(language) ? language[0] : language);
+  const first = Object.values(rec)[0];
+  return text(first);
+}
+
+function truthy(v: unknown): boolean {
+  const t = text(v).toLowerCase();
+  return t === "1" || t === "true" || t === "yes";
 }

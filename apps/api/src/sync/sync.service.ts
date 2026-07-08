@@ -1,26 +1,46 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger, OnApplicationBootstrap } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
 import { SyncStatus } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { PrestashopClient } from "./prestashop.client";
 
 @Injectable()
-export class SyncService {
+export class SyncService implements OnApplicationBootstrap {
   private readonly log = new Logger("Sync");
+  private bootstrapSyncStarted = false;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly ps: PrestashopClient,
   ) {}
 
-  /** Dobowa synchronizacja katalogu (spec 3) — domyślnie o 03:00. */
-  @Cron("0 3 * * *")
-  async scheduled(): Promise<void> {
-    this.log.log("Start dobowej synchronizacji PrestaShop");
+  async onApplicationBootstrap(): Promise<void> {
+    if (this.bootstrapSyncStarted || !this.ps.isConfigured()) return;
+    this.bootstrapSyncStarted = true;
+
+    const [categories, products] = await Promise.all([
+      this.prisma.category.count(),
+      this.prisma.product.count(),
+    ]);
+
+    if (categories > 0 && products > 0) return;
+
+    this.log.log("Local catalog is empty. Starting initial PrestaShop sync.");
     try {
       await this.run();
     } catch (e) {
-      this.log.error(`Synchronizacja nieudana: ${(e as Error).message}`);
+      this.log.warn(`Initial sync failed: ${(e as Error).message}`);
+    }
+  }
+
+  /** Daily catalog sync, default at 03:00. */
+  @Cron("0 3 * * *")
+  async scheduled(): Promise<void> {
+    this.log.log("Starting scheduled PrestaShop sync");
+    try {
+      await this.run();
+    } catch (e) {
+      this.log.error(`Sync failed: ${(e as Error).message}`);
     }
   }
 
@@ -41,8 +61,7 @@ export class SyncService {
 
       let count = 0;
       for (const p of prods) {
-        const categoryId =
-          (p.categoryId && catMap.get(p.categoryId)) || (await this.fallbackCategory());
+        const categoryId = (p.categoryId && catMap.get(p.categoryId)) || (await this.fallbackCategory());
         await this.prisma.product.upsert({
           where: { prestaId: p.id },
           update: {
@@ -70,7 +89,7 @@ export class SyncService {
         where: { id: started.id },
         data: { status: SyncStatus.SUCCESS, productsCount: count, finishedAt: new Date() },
       });
-      this.log.log(`Synchronizacja OK — ${count} produktów`);
+      this.log.log(`Sync OK - ${count} products`);
       return { status: SyncStatus.SUCCESS, count };
     } catch (e) {
       await this.prisma.syncLog.update({
