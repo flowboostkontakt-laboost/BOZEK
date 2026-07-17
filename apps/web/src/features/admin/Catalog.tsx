@@ -17,9 +17,15 @@ interface CatalogProductRow {
   };
 }
 
+interface SyncResult {
+  status: string;
+  count: number;
+}
+
 export function Catalog() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [feedback, setFeedback] = useState<{ ok: boolean; text: string } | null>(null);
   const [cats, setCats] = useApiData<CategoryRow[]>(`/admin/catalog/categories?v=${refreshKey}`, categoriesFixture);
   const [products, setProducts] = useApiData<CatalogProductRow[]>(`/admin/catalog/products?v=${refreshKey}`, []);
 
@@ -33,11 +39,13 @@ export function Catalog() {
 
   const sync = async () => {
     setBusy(true);
+    setFeedback(null);
     try {
-      await apiPost("/admin/sync/run");
+      const res = await apiPost<SyncResult>("/admin/sync/run");
       setRefreshKey((v) => v + 1);
-    } catch {
-      void 0;
+      setFeedback({ ok: true, text: `Zsynchronizowano ${res.count} produktów z PrestaShop.` });
+    } catch (e) {
+      setFeedback({ ok: false, text: `Synchronizacja nie powiodła się: ${(e as Error).message}` });
     } finally {
       setBusy(false);
     }
@@ -92,6 +100,15 @@ export function Catalog() {
             <h2 className="text-sm font-medium text-ink-muted">Produkty pobrane z PrestaShop</h2>
             <span className="text-xs text-ink-faint">{products.length} rekordow</span>
           </div>
+          {feedback && (
+            <div
+              className={`mt-3 rounded-xl border p-3 text-sm ${
+                feedback.ok ? "border-ok/25 bg-ok/10 text-ok" : "border-bad/30 bg-bad/10 text-bad"
+              }`}
+            >
+              {feedback.text}
+            </div>
+          )}
           <div className="mt-4 overflow-x-auto">
             <table className="min-w-full text-left text-sm">
               <thead className="text-xs uppercase tracking-wide text-ink-faint">

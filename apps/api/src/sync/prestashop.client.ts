@@ -39,9 +39,15 @@ export class PrestashopClient {
 
   private async get<T>(path: string): Promise<T> {
     const sep = path.includes("?") ? "&" : "?";
-    const url = `${this.base()}${path}${sep}output_format=JSON`;
+    // Klucz przekazujemy jako ws_key w URL — część hostingów (LiteSpeed/Apache)
+    // wycina nagłówek Authorization, przez co Basic-auth zwraca 401. Nagłówek
+    // zostawiamy dodatkowo dla serwerów, które go przepuszczają.
+    const url = `${this.base()}${path}${sep}ws_key=${encodeURIComponent(this.authKey())}&output_format=JSON`;
     const res = await fetch(url, { headers: { Authorization: this.authHeader() } });
-    if (!res.ok) throw new Error(`PrestaShop ${res.status} przy ${path}`);
+    if (!res.ok) {
+      const detail = (await res.text().catch(() => "")).trim().slice(0, 120);
+      throw new Error(`PrestaShop ${res.status} przy ${path}${detail ? ` — ${detail}` : ""}`);
+    }
     const body = await res.text();
     return parsePrestashop<T>(body);
   }
