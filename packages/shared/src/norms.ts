@@ -79,6 +79,20 @@ export function premiaZaMiesiac(procentMiesiaca: number, progi: BonusTier[]): nu
 }
 
 /**
+ * Wybór progów obowiązujących daną pracownicę (premie indywidualne).
+ * Własny komplet progów NADPISUJE domyślne w całości — brak własnych = domyślne.
+ * Celowo cały komplet, nie scalanie: inaczej nie dałoby się komuś obniżyć progu.
+ */
+export function obowiazujaceProgi(
+  wlasneProgi: BonusTier[],
+  domyslneProgi: BonusTier[],
+): { progi: BonusTier[]; indywidualne: boolean } {
+  return wlasneProgi.length > 0
+    ? { progi: wlasneProgi, indywidualne: true }
+    : { progi: domyslneProgi, indywidualne: false };
+}
+
+/**
  * Kolor wskaźnika postępu (gamifikacja — pasek/pierścień od czerwonego do zielonego).
  * Zwraca token semantyczny używany przez UI (mapowany na kolory motywu).
  */

@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import { procentNormy } from "@sep/shared";
+import { obowiazujaceProgi, premiaZaMiesiac, procentNormy } from "@sep/shared";
 import { PrismaService } from "../prisma/prisma.service";
 import { SyncService } from "../sync/sync.service";
 import { NormsService } from "./norms.service";
@@ -37,6 +37,14 @@ export class DashboardService {
       where: { active: true },
       orderBy: { name: "asc" },
     });
+
+    // Progi premiowe: domyślne + indywidualne. Komplet własny nadpisuje domyślny.
+    const bonusTiers = await this.prisma.bonusTier.findMany({ where: { active: true } });
+    const shapeTier = (t: (typeof bonusTiers)[number]) => ({
+      thresholdPct: t.thresholdPct,
+      amountPln: Number(t.amountPln),
+    });
+    const domyslneProgi = bonusTiers.filter((t) => t.employeeId === null).map(shapeTier);
 
     const rows: DashRow[] = [];
     let dDone = 0,
@@ -79,7 +87,14 @@ export class DashboardService {
         pctDay: day.pct,
         pctMonth: month.pct,
         trend: day.pct >= 100 ? "up" : "down",
-        premia: month.pct >= 100,
+        premia:
+          premiaZaMiesiac(
+            month.pct,
+            obowiazujaceProgi(
+              bonusTiers.filter((t) => t.employeeId === e.id).map(shapeTier),
+              domyslneProgi,
+            ).progi,
+          ) > 0,
         lastAction: last
           ? `${last.product?.name ?? last.customLabel ?? "Zadanie"} (${last.quantity} szt.)`
           : "—",

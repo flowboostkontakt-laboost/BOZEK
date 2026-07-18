@@ -5,6 +5,7 @@ import {
   procentNormy,
   normaMiesieczna,
   premiaZaMiesiac,
+  obowiazujaceProgi,
   kolorPostepu,
 } from "./norms.js";
 import type { AttendanceDay, BonusTier } from "./types.js";
@@ -68,6 +69,36 @@ describe("premiaZaMiesiac — progi (widoczne tylko dla admina)", () => {
   });
   it("95% → brak premii", () => {
     expect(premiaZaMiesiac(95, progi)).toBe(0);
+  });
+});
+
+describe("obowiazujaceProgi — premie indywidualne nadpisują domyślne", () => {
+  const domyslne: BonusTier[] = [
+    { thresholdPct: 100, amountPln: 300 },
+    { thresholdPct: 110, amountPln: 600 },
+  ];
+  const wlasne: BonusTier[] = [{ thresholdPct: 90, amountPln: 500 }];
+
+  it("brak własnych progów → obowiązują domyślne", () => {
+    const r = obowiazujaceProgi([], domyslne);
+    expect(r.progi).toEqual(domyslne);
+    expect(r.indywidualne).toBe(false);
+  });
+
+  it("własne progi w całości nadpisują domyślne", () => {
+    const r = obowiazujaceProgi(wlasne, domyslne);
+    expect(r.progi).toEqual(wlasne);
+    expect(r.indywidualne).toBe(true);
+  });
+
+  it("indywidualny próg 90% daje premię tam, gdzie domyślne 100% jej nie dają", () => {
+    expect(premiaZaMiesiac(95, obowiazujaceProgi(wlasne, domyslne).progi)).toBe(500);
+    expect(premiaZaMiesiac(95, obowiazujaceProgi([], domyslne).progi)).toBe(0);
+  });
+
+  it("własny komplet potrafi też ZABRAĆ premię mimo wysokiego wyniku", () => {
+    const surowe: BonusTier[] = [{ thresholdPct: 150, amountPln: 1000 }];
+    expect(premiaZaMiesiac(120, obowiazujaceProgi(surowe, domyslne).progi)).toBe(0);
   });
 });
 

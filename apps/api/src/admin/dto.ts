@@ -49,4 +49,6 @@ export class BonusTierDto {
   @IsInt() @Min(0) thresholdPct!: number;
   @IsNumber() amountPln!: number;
   @IsOptional() @IsString() @MaxLength(60) label?: string;
+  /** Próg indywidualny pracownicy. Pominięte/null = próg domyślny dla wszystkich. */
+  @IsOptional() @IsString() employeeId?: string | null;
 }

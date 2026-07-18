@@ -41,6 +41,8 @@ model Employee {
   entries         ProductionEntry[]
   attendance      Attendance[]
   sessions        WorkSession[]
+  // Indywidualne progi premiowe (puste = obowiązują progi domyślne).
+  bonusTiers      BonusTier[]
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
 }
@@ -150,7 +152,13 @@ model BonusTier {
   amountPln    Decimal  @db.Decimal(10, 2)
   label        String?
   active       Boolean  @default(true)
+  // Próg indywidualny pracownicy. null = próg DOMYŚLNY (globalny) dla wszystkich.
+  // Jeśli pracownica ma własne progi, jej komplet NADPISUJE domyślne (spec: premie indywidualne).
+  employee     Employee? @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  employeeId   String?
   createdAt    DateTime @default(now())
+
+  @@index([employeeId])
 }
 
 // ─── Logi synchronizacji PrestaShop ──────────────────────────────────
