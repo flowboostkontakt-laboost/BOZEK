@@ -13,7 +13,7 @@ import {
   IconMinus,
   IconPlus,
 } from "../../components/icons";
-import { kolorPostepu } from "@sep/shared";
+import { kolorPostepu, znajdzPoKodzie } from "@sep/shared";
 import { useAuth } from "../../lib/auth";
 import { apiGet, apiPost, apiUpload } from "../../lib/api";
 import { catalog as fixtureCatalog, type RecentEntry } from "../../lib/fixtures";
@@ -23,8 +23,11 @@ interface Prod {
   name: string;
   category: string;
   last4: string;
+  /** Kod kreskowy z PrestaShop (ean13, w razie braku reference). */
+  barcode?: string;
   color: string;
 }
+
 
 type Screen = "dashboard" | "method" | "manual" | "scan" | "photo" | "confirm" | "task" | "stats";
 
@@ -48,7 +51,7 @@ export function WorkerApp() {
   const [shiftStart, setShiftStart] = useState<Date | null>(null);
 
   const load = () => {
-    apiGet<{ id: string; name: string; category: string; last4: string }[]>("/worker/products")
+    apiGet<{ id: string; name: string; category: string; last4: string; barcode: string }[]>("/worker/products")
       .then((list) =>
         setProducts(list.map((p) => ({ ...p, color: colorFor(p.name) }))),
       )
@@ -129,7 +132,12 @@ export function WorkerApp() {
         <ManualEntry products={products} onBack={() => setScreen("method")} onNext={(p) => toConfirm(p)} />
       )}
       {screen === "scan" && (
-        <ScanEntry products={products} onBack={() => setScreen("method")} onFound={(p) => toConfirm(p)} />
+        <ScanEntry
+          products={products}
+          onBack={() => setScreen("method")}
+          onFound={(p) => toConfirm(p)}
+          onManual={() => setScreen("manual")}
+        />
       )}
       {screen === "photo" && (
         <PhotoEntry
@@ -387,48 +395,77 @@ function ManualEntry({ products, onBack, onNext }: { products: Prod[]; onBack: (
   );
 }
 
-function ScanEntry({ products, onBack, onFound }: { products: Prod[]; onBack: () => void; onFound: (p: Prod) => void }) {
+function ScanEntry({
+  products,
+  onBack,
+  onFound,
+  onManual,
+}: {
+  products: Prod[];
+  onBack: () => void;
+  onFound: (p: Prod) => void;
+  onManual: () => void;
+}) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [camError, setCamError] = useState(false);
+  // Kod odczytany, ale nieznaleziony w katalogu — skanowanie czeka na decyzję.
+  const [nieznany, setNieznany] = useState<string | null>(null);
 
   useEffect(() => {
+    if (nieznany) return; // wstrzymane do czasu „Skanuj ponownie"
     let controls: { stop: () => void } | undefined;
+    let obsluzone = false;
     const reader = new BrowserMultiFormatReader();
     (async () => {
       try {
         controls = await reader.decodeFromVideoDevice(undefined, videoRef.current!, (result) => {
-          if (result) {
-            const code = result.getText();
-            const p = products.find((x) => x.last4 === code.slice(-4)) ?? products[0];
-            controls?.stop();
-            if (p) onFound(p);
-          }
+          if (!result || obsluzone) return;
+          obsluzone = true;
+          const code = result.getText();
+          controls?.stop();
+          const p = znajdzPoKodzie(products, code);
+          if (p) onFound(p);
+          else setNieznany(code);
         });
       } catch {
         setCamError(true);
       }
     })();
     return () => controls?.stop();
-  }, [onFound, products]);
+  }, [onFound, products, nieznany]);
 
   return (
     <div className="flex flex-1 flex-col">
-      <TopBar title="Skanowanie…" onBack={onBack} />
+      <TopBar title={nieznany ? "Nie rozpoznano" : "Skanowanie…"} onBack={onBack} />
       <div className="px-5 pt-4">
         <div className="relative aspect-square overflow-hidden rounded-2xl border border-line bg-black">
           <video ref={videoRef} className="h-full w-full object-cover" muted playsInline />
-          <div className="pointer-events-none absolute inset-8 rounded-xl border-2 border-accent/70" />
+          <div className={`pointer-events-none absolute inset-8 rounded-xl border-2 ${nieznany ? "border-bad/70" : "border-accent/70"}`} />
         </div>
-        <p className="mt-3 text-center text-xs text-ink-faint">
-          {camError ? "Brak dostępu do kamery — użyj przycisku poniżej." : "Skieruj aparat na kod kreskowy / QR."}
-        </p>
+        {nieznany ? (
+          <div className="mt-3 rounded-2xl border border-bad/30 bg-bad/10 p-3 text-center">
+            <p className="text-sm font-medium text-bad">Nie rozpoznano kodu</p>
+            <p className="mt-1 break-all text-xs text-ink-muted">{nieznany}</p>
+            <p className="mt-1 text-xs text-ink-faint">Nie ma go w katalogu — nic nie zostało zapisane.</p>
+          </div>
+        ) : (
+          <p className="mt-3 text-center text-xs text-ink-faint">
+            {camError ? "Brak dostępu do kamery — wpisz ID ręcznie." : "Skieruj aparat na kod kreskowy / QR."}
+          </p>
+        )}
       </div>
-      <div className="mt-auto px-4 pt-5" style={safeBottom}>
-        {products[0] && (
-          <button onClick={() => onFound(products[0])} className="w-full rounded-2xl border border-line bg-surface-1 py-3 text-sm font-medium">
-            Wpisz ręcznie zamiast skanu
+      <div className="mt-auto space-y-2 px-4 pt-5" style={safeBottom}>
+        {nieznany && (
+          <button
+            onClick={() => setNieznany(null)}
+            className="w-full rounded-2xl bg-accent py-4 text-base font-semibold text-white transition active:scale-[0.98]"
+          >
+            Skanuj ponownie
           </button>
         )}
+        <button onClick={onManual} className="w-full rounded-2xl border border-line bg-surface-1 py-3 text-sm font-medium">
+          Wpisz ID ręcznie
+        </button>
       </div>
     </div>
   );
