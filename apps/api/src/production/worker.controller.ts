@@ -23,15 +23,16 @@ export class WorkerController {
     return user.employeeId;
   }
 
-  /** Tylko procenty — do pierścieni postępu. */
+  /** Tylko procenty — do pierścieni postępu. Tydzień = ruchome ostatnie 7 dni. */
   @Get("me/progress")
   async progress(@CurrentUser() user: AuthUser) {
     const employeeId = this.emp(user);
-    const [day, month] = await Promise.all([
+    const [day, week, month] = await Promise.all([
       this.norms.dayProgress(employeeId),
+      this.norms.weekProgress(employeeId),
       this.norms.monthProgress(employeeId),
     ]);
-    return { dayPct: day.pct, monthPct: month.pct };
+    return { dayPct: day.pct, weekPct: week.pct, monthPct: month.pct };
   }
 
   /** Katalog produktów dla pracownicy (bez cen — dyskrecja). Do wyszukiwania po 4 cyfrach i skanu. */
@@ -137,18 +138,26 @@ export class WorkerController {
   @Get("me/stats")
   async stats(@CurrentUser() user: AuthUser) {
     const employeeId = this.emp(user);
-    const [day, month] = await Promise.all([
+    const [day, week, month] = await Promise.all([
       this.norms.dayProgress(employeeId),
+      this.norms.weekProgress(employeeId),
       this.norms.monthProgress(employeeId),
     ]);
     const now = new Date();
     const startDay = new Date(now);
     startDay.setHours(0, 0, 0, 0);
+    // Ruchome 7 dni: dziś + 6 poprzednich (spójne z weekProgress).
+    const startWeek = new Date(startDay);
+    startWeek.setDate(startWeek.getDate() - 6);
     const startMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    const [today, monthAgg] = await Promise.all([
+    const [today, weekAgg, monthAgg] = await Promise.all([
       this.prisma.productionEntry.aggregate({
         _sum: { quantity: true },
         where: { employeeId, status: "CONFIRMED", createdAt: { gte: startDay } },
+      }),
+      this.prisma.productionEntry.aggregate({
+        _sum: { quantity: true },
+        where: { employeeId, status: "CONFIRMED", createdAt: { gte: startWeek } },
       }),
       this.prisma.productionEntry.aggregate({
         _sum: { quantity: true },
@@ -157,8 +166,10 @@ export class WorkerController {
     ]);
     return {
       dayPct: day.pct,
+      weekPct: week.pct,
       monthPct: month.pct,
       todayUnits: today._sum.quantity ?? 0,
+      weekUnits: weekAgg._sum.quantity ?? 0,
       monthUnits: monthAgg._sum.quantity ?? 0,
     };
   }

@@ -53,10 +53,11 @@ export function procentNormy(wykonanoZl: number, normaZl: number): number {
 }
 
 /**
- * Norma miesięczna = suma norm efektywnych TYLKO z dni pracujących.
- * Dni urlopu/chorobowego są pomijane → nie zaniżają wyniku miesięcznego.
+ * Norma za dowolny okres = suma norm efektywnych TYLKO z dni pracujących.
+ * Dni urlopu/chorobowego są pomijane → nie zaniżają wyniku okresu.
+ * Używane dla miesiąca i dla ruchomego okna 7 dni.
  */
-export function normaMiesieczna(
+export function normaZOkresu(
   normaBazowa: number,
   dni: AttendanceDay[],
   etatBazowy: number = FULL_TIME_HOURS,
@@ -65,6 +66,15 @@ export function normaMiesieczna(
     .filter((d) => d.type === "WORK")
     .reduce((acc, d) => acc + normaEfektywnaDnia(normaBazowa, d.hours, etatBazowy), 0);
   return round2(suma);
+}
+
+/** Norma miesięczna — okres = dni danego miesiąca (patrz normaZOkresu). */
+export function normaMiesieczna(
+  normaBazowa: number,
+  dni: AttendanceDay[],
+  etatBazowy: number = FULL_TIME_HOURS,
+): number {
+  return normaZOkresu(normaBazowa, dni, etatBazowy);
 }
 
 /**

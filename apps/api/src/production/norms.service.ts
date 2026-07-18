@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import { normaEfektywnaDnia, normaMiesieczna, procentNormy, wartoscPozycji } from "@sep/shared";
+import { normaEfektywnaDnia, normaMiesieczna, normaZOkresu, procentNormy, wartoscPozycji } from "@sep/shared";
 import type { AttendanceDay } from "@sep/shared";
 import { PrismaService } from "../prisma/prisma.service";
 
@@ -61,6 +61,37 @@ export class NormsService {
         status: "CONFIRMED",
         createdAt: { gte: this.startOfDay(date), lte: this.endOfDay(date) },
       },
+    });
+    const done = num(agg._sum.normValuePln);
+    return { done, norm, pct: procentNormy(done, norm) };
+  }
+
+  /**
+   * Postęp z RUCHOMEGO okna ostatnich 7 dni (dziś + 6 poprzednich), nie z tygodnia
+   * kalendarzowego. Norma liczona jak miesięczna — z dni obecności, więc urlop
+   * i chorobowe nie zaniżają wyniku.
+   */
+  async weekProgress(employeeId: string, ref: Date = new Date()): Promise<Progress> {
+    const employee = await this.prisma.employee.findUnique({ where: { id: employeeId } });
+    if (!employee) return { done: 0, norm: 0, pct: 0 };
+
+    const to = this.endOfDay(ref);
+    const from = this.startOfDay(ref);
+    from.setDate(from.getDate() - 6);
+
+    const attendance = await this.prisma.attendance.findMany({
+      where: { employeeId, date: { gte: from, lte: to } },
+    });
+    const days: AttendanceDay[] = attendance.map((a) => ({
+      date: a.date.toISOString().slice(0, 10),
+      type: a.type,
+      hours: num(a.hours),
+    }));
+    const norm = normaZOkresu(num(employee.baseNormPln), days);
+
+    const agg = await this.prisma.productionEntry.aggregate({
+      _sum: { normValuePln: true },
+      where: { employeeId, status: "CONFIRMED", createdAt: { gte: from, lte: to } },
     });
     const done = num(agg._sum.normValuePln);
     return { done, norm, pct: procentNormy(done, norm) };

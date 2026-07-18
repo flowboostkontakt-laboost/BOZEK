@@ -43,7 +43,7 @@ export function WorkerApp() {
   const [products, setProducts] = useState<Prod[]>(
     fixtureCatalog.map((c) => ({ name: c.name, category: c.category, last4: c.last4, color: c.color })),
   );
-  const [progress, setProgress] = useState({ dayPct: 0, monthPct: 0 });
+  const [progress, setProgress] = useState({ dayPct: 0, weekPct: 0, monthPct: 0 });
   const [recent, setRecent] = useState<RecentEntry[]>([]);
   const [shiftStart, setShiftStart] = useState<Date | null>(null);
 
@@ -53,7 +53,7 @@ export function WorkerApp() {
         setProducts(list.map((p) => ({ ...p, color: colorFor(p.name) }))),
       )
       .catch(() => void 0);
-    apiGet<{ dayPct: number; monthPct: number }>("/worker/me/progress").then(setProgress).catch(() => void 0);
+    apiGet<{ dayPct: number; weekPct: number; monthPct: number }>("/worker/me/progress").then(setProgress).catch(() => void 0);
     apiGet<RecentEntry[]>("/worker/entries/recent").then(setRecent).catch(() => void 0);
     apiGet<{ active: boolean; startedAt: string | null }>("/worker/shift/current")
       .then((r) => setShiftStart(r.startedAt ? new Date(r.startedAt) : null))
@@ -242,7 +242,7 @@ function Dashboard({
   onTask,
 }: {
   name: string;
-  progress: { dayPct: number; monthPct: number };
+  progress: { dayPct: number; weekPct: number; monthPct: number };
   recent: RecentEntry[];
   shiftStart: Date | null;
   onStartShift: () => void;
@@ -270,9 +270,11 @@ function Dashboard({
 
       <WorkTimer start={shiftStart} onStart={onStartShift} onStop={onStopShift} />
 
+      {/* Trzy pierścienie — rozmiar 96, żeby zmieściły się na wąskich telefonach. */}
       <div className="mx-4 mt-3 flex items-center justify-around rounded-2xl border border-line bg-surface-1 py-6">
-        <ProgressRing pct={progress.dayPct} label="Dziś" size={108} />
-        <ProgressRing pct={progress.monthPct} label="Miesiąc" size={108} />
+        <ProgressRing pct={progress.dayPct} label="Dziś" size={96} />
+        <ProgressRing pct={progress.weekPct} label="Tydzień" size={96} />
+        <ProgressRing pct={progress.monthPct} label="Miesiąc" size={96} />
       </div>
 
       <div className="mt-4 grid grid-cols-2 gap-3 px-4">
@@ -645,7 +647,14 @@ function WorkTimer({ start, onStart, onStop }: { start: Date | null; onStart: ()
 
 // ─── Ekran Statystyki ─────────────────────────────────────────────────
 function StatsScreen({ onBack }: { onBack: () => void }) {
-  const [s, setS] = useState({ dayPct: 0, monthPct: 0, todayUnits: 0, monthUnits: 0 });
+  const [s, setS] = useState({
+    dayPct: 0,
+    weekPct: 0,
+    monthPct: 0,
+    todayUnits: 0,
+    weekUnits: 0,
+    monthUnits: 0,
+  });
   useEffect(() => {
     apiGet<typeof s>("/worker/me/stats").then(setS).catch(() => void 0);
   }, []);
@@ -654,16 +663,24 @@ function StatsScreen({ onBack }: { onBack: () => void }) {
       <TopBar title="Statystyki" onBack={onBack} />
       <div className="space-y-5 px-4 pt-5" style={safeBottom}>
         <div className="grid grid-cols-2 gap-3">
+          {/* Kolejność: każdy wiersz = jeden okres (norma % obok sztuk). */}
           <StatCard label="Norma dziś" value={`${s.dayPct}%`} accent />
-          <StatCard label="Norma w miesiącu" value={`${s.monthPct}%`} accent />
           <StatCard label="Sztuki dziś" value={String(s.todayUnits)} />
+          <StatCard label="Norma w tygodniu" value={`${s.weekPct}%`} accent />
+          <StatCard label="Sztuki w tygodniu" value={String(s.weekUnits)} />
+          <StatCard label="Norma w miesiącu" value={`${s.monthPct}%`} accent />
           <StatCard label="Sztuki w miesiącu" value={String(s.monthUnits)} />
         </div>
         <div className="rounded-2xl border border-line bg-surface-1 p-4">
           <StatBar label="Realizacja dzienna" pct={s.dayPct} />
           <div className="h-4" />
+          <StatBar label="Realizacja tygodniowa" pct={s.weekPct} />
+          <div className="h-4" />
           <StatBar label="Realizacja miesięczna" pct={s.monthPct} />
         </div>
+        <p className="text-xs text-ink-faint">
+          Tydzień = ostatnie 7 dni (dziś i 6 poprzednich), okno przesuwa się każdego dnia.
+        </p>
       </div>
     </div>
   );

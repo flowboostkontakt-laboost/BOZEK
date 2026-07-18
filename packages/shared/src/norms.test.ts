@@ -4,6 +4,7 @@ import {
   wartoscPozycji,
   procentNormy,
   normaMiesieczna,
+  normaZOkresu,
   premiaZaMiesiac,
   obowiazujaceProgi,
   kolorPostepu,
@@ -53,6 +54,35 @@ describe("normaMiesieczna — nieobecności nie zaniżają wyniku", () => {
   it("liczy tylko dni pracujące (8h + 6h)", () => {
     // 1750*1 + 1750*0.75 = 1750 + 1312.5 = 3062.5
     expect(normaMiesieczna(1750, dni)).toBe(3062.5);
+  });
+});
+
+describe("normaZOkresu — ruchome okno 7 dni (statystyki tygodniowe)", () => {
+  it("sumuje wyłącznie dni pracujące z okna, pomijając urlop i chorobowe", () => {
+    const okno: AttendanceDay[] = [
+      { date: "2026-07-13", type: "WORK", hours: 8 },
+      { date: "2026-07-14", type: "WORK", hours: 8 },
+      { date: "2026-07-15", type: "VACATION", hours: 0 },
+      { date: "2026-07-16", type: "SICK_LEAVE", hours: 0 },
+      { date: "2026-07-17", type: "WORK", hours: 4 },
+    ];
+    // 1750 + 1750 + 1750*0.5 = 4375
+    expect(normaZOkresu(1750, okno)).toBe(4375);
+  });
+
+  it("okno bez dni pracujących daje normę 0 (a procent nie wybucha)", () => {
+    const urlop: AttendanceDay[] = [{ date: "2026-07-13", type: "VACATION", hours: 0 }];
+    expect(normaZOkresu(1750, urlop)).toBe(0);
+    expect(procentNormy(0, normaZOkresu(1750, urlop))).toBe(0);
+  });
+
+  it("jest spójna z normaMiesieczna dla tego samego zestawu dni", () => {
+    const te_same: AttendanceDay[] = [
+      { date: "2026-05-04", type: "WORK", hours: 8 },
+      { date: "2026-05-05", type: "WORK", hours: 6 },
+      { date: "2026-05-06", type: "VACATION", hours: 0 },
+    ];
+    expect(normaZOkresu(2000, te_same)).toBe(normaMiesieczna(2000, te_same));
   });
 });
 
