@@ -37,6 +37,8 @@ model Employee {
   // Norma bazowa przy pełnym etacie 8h (np. 1750 lub 2000 zł) — spec 4.2.
   baseNormPln     Decimal           @db.Decimal(10, 2)
   defaultHours    Decimal           @db.Decimal(4, 2) @default(8.0)
+  // Pula dni urlopu w roku (do wyliczenia „urlop do końca roku" w kalendarzu).
+  vacationDaysPerYear Int           @default(26)
   user            User?
   entries         ProductionEntry[]
   attendance      Attendance[]

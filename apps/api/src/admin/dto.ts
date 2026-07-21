@@ -13,16 +13,22 @@ import {
 import { AttendanceType } from "@prisma/client";
 
 export class CreateEmployeeDto {
-  @IsString() name!: string;
+  @IsString() @MaxLength(60) name!: string;
   @IsNumber() baseNormPln!: number;
   @IsOptional() @IsNumber() defaultHours?: number;
-  @IsString() login!: string;
+  @IsString() @MaxLength(40) login!: string;
   @IsString() @MaxLength(72) password!: string;
+  @IsOptional() @IsInt() @Min(0) @Max(366) vacationDaysPerYear?: number;
 }
 
 export class UpdateEmployeeDto {
+  @IsOptional() @IsString() @MaxLength(60) name?: string;
+  @IsOptional() @IsString() @MaxLength(40) login?: string;
+  // Reset hasła. Puste/pominięte = bez zmiany hasła.
+  @IsOptional() @IsString() @MaxLength(72) password?: string;
   @IsOptional() @IsNumber() baseNormPln?: number;
   @IsOptional() @IsNumber() defaultHours?: number;
+  @IsOptional() @IsInt() @Min(0) @Max(366) vacationDaysPerYear?: number;
   @IsOptional() @IsBoolean() active?: boolean;
 }
 
