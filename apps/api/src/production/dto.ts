@@ -1,5 +1,5 @@
-import { IsEnum, IsInt, IsString, Min, MaxLength } from "class-validator";
-import { EntryMethod } from "@prisma/client";
+import { IsDateString, IsEnum, IsInt, IsString, Min, MaxLength } from "class-validator";
+import { AttendanceType, EntryMethod } from "@prisma/client";
 
 export class CreateEntryDto {
   @IsString()
@@ -17,4 +17,13 @@ export class CreateTaskDto {
   @IsString()
   @MaxLength(500)
   label!: string;
+}
+
+/** Oznaczenie dnia w kalendarzu przez samą pracownicę (urlop/chorobowe/praca). */
+export class WorkerAttendanceDto {
+  @IsDateString()
+  date!: string;
+
+  @IsEnum(AttendanceType)
+  type!: AttendanceType;
 }

@@ -1,10 +1,10 @@
-import { Body, Controller, ForbiddenException, Get, Post } from "@nestjs/common";
+import { Body, Controller, Delete, ForbiddenException, Get, Post, Query } from "@nestjs/common";
 import { Role } from "@prisma/client";
 import { Roles } from "../auth/decorators/roles.decorator";
 import { CurrentUser, type AuthUser } from "../auth/decorators/current-user.decorator";
 import { PrismaService } from "../prisma/prisma.service";
 import { NormsService } from "./norms.service";
-import { CreateEntryDto, CreateTaskDto } from "./dto";
+import { CreateEntryDto, CreateTaskDto, WorkerAttendanceDto } from "./dto";
 
 /**
  * Endpointy pracownicy. ZASADA: żadna odpowiedź nie zawiera kwot, cen ani premii
@@ -114,10 +114,29 @@ export class WorkerController {
   @Post("shift/start")
   async shiftStart(@CurrentUser() user: AuthUser) {
     const employeeId = this.emp(user);
+    await this.autoMarkWorkToday(employeeId);
     const open = await this.prisma.workSession.findFirst({ where: { employeeId, endedAt: null } });
     if (open) return { startedAt: open.startedAt, alreadyActive: true };
     const s = await this.prisma.workSession.create({ data: { employeeId } });
     return { startedAt: s.startedAt };
+  }
+
+  /**
+   * „Start pracy" automatycznie oznacza dziś jako dzień pracy w kalendarzu.
+   * Nie nadpisuje ręcznego wpisu (np. gdyby dziś był oznaczony urlop) —
+   * tworzy WORK tylko, gdy dnia jeszcze nie ma.
+   */
+  private async autoMarkWorkToday(employeeId: string): Promise<void> {
+    const date = new Date();
+    date.setHours(0, 0, 0, 0);
+    const existing = await this.prisma.attendance.findUnique({
+      where: { employeeId_date: { employeeId, date } },
+    });
+    if (existing) return;
+    const emp = await this.prisma.employee.findUnique({ where: { id: employeeId } });
+    await this.prisma.attendance.create({
+      data: { employeeId, date, type: "WORK", hours: emp ? Number(emp.defaultHours) : 8 },
+    });
   }
 
   @Post("shift/stop")
@@ -172,5 +191,47 @@ export class WorkerController {
       weekUnits: weekAgg._sum.quantity ?? 0,
       monthUnits: monthAgg._sum.quantity ?? 0,
     };
+  }
+
+  // ─── Kalendarz pracownicy (własne urlopy / chorobowe / praca) ───────
+
+  /** Obecności pracownicy w danym miesiącu (domyślnie bieżący). */
+  @Get("me/attendance")
+  async attendance(@CurrentUser() user: AuthUser, @Query("month") month?: string) {
+    const employeeId = this.emp(user);
+    const ref = month ? new Date(`${month}-01T00:00:00`) : new Date();
+    const from = new Date(ref.getFullYear(), ref.getMonth(), 1);
+    const to = new Date(ref.getFullYear(), ref.getMonth() + 1, 0, 23, 59, 59, 999);
+    const list = await this.prisma.attendance.findMany({
+      where: { employeeId, date: { gte: from, lte: to } },
+      orderBy: { date: "asc" },
+    });
+    return list.map((a) => ({ date: a.date.toISOString().slice(0, 10), type: a.type, hours: Number(a.hours) }));
+  }
+
+  /** Oznaczenie własnego dnia (urlop/chorobowe/praca). */
+  @Post("me/attendance")
+  async setAttendance(@CurrentUser() user: AuthUser, @Body() dto: WorkerAttendanceDto) {
+    const employeeId = this.emp(user);
+    const date = new Date(dto.date);
+    date.setHours(0, 0, 0, 0);
+    const emp = await this.prisma.employee.findUnique({ where: { id: employeeId } });
+    const hours = dto.type === "WORK" ? (emp ? Number(emp.defaultHours) : 8) : 0;
+    const saved = await this.prisma.attendance.upsert({
+      where: { employeeId_date: { employeeId, date } },
+      update: { type: dto.type, hours },
+      create: { employeeId, date, type: dto.type, hours },
+    });
+    return { date: saved.date.toISOString().slice(0, 10), type: saved.type };
+  }
+
+  /** Wyczyszczenie oznaczenia własnego dnia. */
+  @Delete("me/attendance")
+  async clearAttendance(@CurrentUser() user: AuthUser, @Query("date") dateStr: string) {
+    const employeeId = this.emp(user);
+    const date = new Date(dateStr);
+    date.setHours(0, 0, 0, 0);
+    await this.prisma.attendance.deleteMany({ where: { employeeId, date } });
+    return { ok: true };
   }
 }

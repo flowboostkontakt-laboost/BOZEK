@@ -7,6 +7,7 @@ import { AttendanceController } from "./attendance.controller";
 import { BonusController } from "./bonus.controller";
 import { ReportsController } from "./reports.controller";
 import { ReportsService } from "./reports.service";
+import { CalendarService } from "./calendar.service";
 
 @Module({
   imports: [ProductionModule], // udostępnia NormsService (premie)
@@ -18,6 +19,6 @@ import { ReportsService } from "./reports.service";
     BonusController,
     ReportsController,
   ],
-  providers: [ReportsService],
+  providers: [ReportsService, CalendarService],
 })
 export class AdminModule {}

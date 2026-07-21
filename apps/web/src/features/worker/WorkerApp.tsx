@@ -4,6 +4,7 @@ import { ProgressRing } from "../../components/ProgressRing";
 import {
   IconArrowLeft,
   IconBarcode,
+  IconCalendar,
   IconCamera,
   IconChart,
   IconCheck,
@@ -15,7 +16,7 @@ import {
 } from "../../components/icons";
 import { kolorPostepu, znajdzPoKodzie } from "@sep/shared";
 import { useAuth } from "../../lib/auth";
-import { apiGet, apiPost, apiUpload } from "../../lib/api";
+import { apiGet, apiPost, apiUpload, apiDelete } from "../../lib/api";
 import { catalog as fixtureCatalog, type RecentEntry } from "../../lib/fixtures";
 
 interface Prod {
@@ -29,7 +30,7 @@ interface Prod {
 }
 
 
-type Screen = "dashboard" | "method" | "manual" | "scan" | "photo" | "confirm" | "task" | "stats";
+type Screen = "dashboard" | "method" | "manual" | "scan" | "photo" | "confirm" | "task" | "stats" | "calendar";
 
 const PALETTE = ["#8c3048", "#a8556b", "#7a3b46", "#a8264a", "#8a5a52", "#b08968"];
 const colorFor = (s: string) => PALETTE[[...s].reduce((a, c) => a + c.charCodeAt(0), 0) % PALETTE.length];
@@ -120,6 +121,7 @@ export function WorkerApp() {
         />
       )}
       {screen === "stats" && <StatsScreen onBack={() => setScreen("dashboard")} />}
+      {screen === "calendar" && <WorkerCalendar onBack={() => setScreen("dashboard")} />}
       {screen === "method" && (
         <MethodPicker
           onBack={() => setScreen("dashboard")}
@@ -167,6 +169,7 @@ export function WorkerApp() {
           name={user?.name ?? ""}
           onClose={() => setMenu(false)}
           onStats={() => { setMenu(false); setScreen("stats"); }}
+          onCalendar={() => { setMenu(false); setScreen("calendar"); }}
           onRefresh={load}
           onLogout={logout}
         />
@@ -198,12 +201,14 @@ function Menu({
   name,
   onClose,
   onStats,
+  onCalendar,
   onRefresh,
   onLogout,
 }: {
   name: string;
   onClose: () => void;
   onStats: () => void;
+  onCalendar: () => void;
   onRefresh: () => void;
   onLogout: () => void;
 }) {
@@ -226,6 +231,9 @@ function Menu({
         </div>
         <button onClick={onStats} className="mb-3 flex w-full items-center gap-3 rounded-xl border border-line px-4 py-3 text-left font-medium hover:bg-surface-2">
           <IconChart className="h-5 w-5 text-accent-300" /> Statystyki
+        </button>
+        <button onClick={onCalendar} className="mb-3 flex w-full items-center gap-3 rounded-xl border border-line px-4 py-3 text-left font-medium hover:bg-surface-2">
+          <IconCalendar className="h-5 w-5 text-accent-300" /> Kalendarz
         </button>
         <button onClick={() => { onRefresh(); onClose(); }} className="btn-ghost mb-3 w-full text-left">
           Odśwież dane
@@ -718,6 +726,93 @@ function StatsScreen({ onBack }: { onBack: () => void }) {
         <p className="text-xs text-ink-faint">
           Tydzień = ostatnie 7 dni (dziś i 6 poprzednich), okno przesuwa się każdego dnia.
         </p>
+      </div>
+    </div>
+  );
+}
+
+// ─── Ekran Kalendarz pracownicy (własny urlop / chorobowe) ────────────
+type WDay = "WORK" | "VACATION" | "SICK_LEAVE" | null;
+// Praca jest oznaczana automatycznie („Start pracy"). Pracownica sama ustawia
+// urlop/chorobowe: tap cyklicznie Urlop → Chorobowe → brak.
+const WORKER_CYCLE: Record<string, WDay> = { "": "VACATION", WORK: "VACATION", VACATION: "SICK_LEAVE", SICK_LEAVE: null };
+const WORKER_STYLE: Record<string, string> = {
+  WORK: "bg-accent text-white",
+  VACATION: "bg-warn/25 text-warn",
+  SICK_LEAVE: "bg-bad/25 text-bad",
+};
+
+function WorkerCalendar({ onBack }: { onBack: () => void }) {
+  const [days, setDays] = useState<Record<number, WDay>>({});
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  const monthLabel = now.toLocaleDateString("pl-PL", { month: "long", year: "numeric" });
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const leading = (new Date(year, month, 1).getDay() + 6) % 7;
+  const monthStr = `${year}-${String(month + 1).padStart(2, "0")}`;
+
+  useEffect(() => {
+    apiGet<{ date: string; type: WDay }[]>(`/worker/me/attendance?month=${monthStr}`)
+      .then((list) => {
+        const map: Record<number, WDay> = {};
+        for (const a of list) map[new Date(`${a.date}T00:00:00`).getDate()] = a.type;
+        setDays(map);
+      })
+      .catch(() => void 0);
+  }, [monthStr]);
+
+  const cycle = (d: number) => {
+    const next = WORKER_CYCLE[days[d] ?? ""] ?? null;
+    setDays((prev) => ({ ...prev, [d]: next }));
+    const date = `${monthStr}-${String(d).padStart(2, "0")}`;
+    if (next) apiPost("/worker/me/attendance", { date, type: next }).catch(() => void 0);
+    else apiDelete(`/worker/me/attendance?date=${date}`).catch(() => void 0);
+  };
+
+  return (
+    <div className="flex flex-1 flex-col">
+      <TopBar title="Kalendarz" onBack={onBack} />
+      <div className="px-4 pt-4" style={safeBottom}>
+        <div className="rounded-2xl border border-line bg-surface-1 p-4">
+          <h2 className="mb-4 text-sm font-medium capitalize text-ink-muted">{monthLabel}</h2>
+          <div className="grid grid-cols-7 gap-1.5 text-center text-[11px] text-ink-faint">
+            {["Pn", "Wt", "Śr", "Cz", "Pt", "So", "Nd"].map((d) => (
+              <div key={d} className="py-1">
+                {d}
+              </div>
+            ))}
+            {Array.from({ length: leading }).map((_, i) => (
+              <div key={`e${i}`} />
+            ))}
+            {Array.from({ length: daysInMonth }, (_, i) => i + 1).map((d) => {
+              const t = days[d] ?? "";
+              return (
+                <button
+                  key={d}
+                  onClick={() => cycle(d)}
+                  className={`grid aspect-square place-items-center rounded-lg text-sm transition active:scale-95 ${WORKER_STYLE[t] ?? "text-ink-muted hover:bg-surface-2"}`}
+                >
+                  {d}
+                </button>
+              );
+            })}
+          </div>
+          <div className="mt-5 flex flex-wrap gap-4 text-xs text-ink-muted">
+            <span className="flex items-center gap-2">
+              <span className="h-3 w-3 rounded bg-accent" /> Praca (automatycznie)
+            </span>
+            <span className="flex items-center gap-2">
+              <span className="h-3 w-3 rounded bg-warn" /> Urlop
+            </span>
+            <span className="flex items-center gap-2">
+              <span className="h-3 w-3 rounded bg-bad" /> Chorobowe
+            </span>
+          </div>
+          <p className="mt-3 text-xs text-ink-faint">
+            Dotknij dzień: Urlop → Chorobowe → brak. Dni pracy zaznaczają się same po „Start pracy".
+          </p>
+        </div>
       </div>
     </div>
   );
