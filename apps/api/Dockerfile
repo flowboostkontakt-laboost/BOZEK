@@ -21,5 +21,7 @@ RUN apt-get update && apt-get install -y openssl ca-certificates && rm -rf /var/
 COPY --from=build /app ./
 EXPOSE 3000
 # Migracja + seed (idempotentny). Błędy nie zatrzymują serwera → /api/health zawsze odpowiada.
+# `timeout` jest kluczowy: przy nieosiągalnej bazie prisma db push nie kończy się
+# błędem, tylko wisi w nieskończoność — kontener nigdy nie dochodził do main.js.
 # Entry serwera: dist/src/main.js (nest zagnieżdża pod src/).
-CMD sh -c "npm run db:push -w @sep/api || echo 'UWAGA: db:push nieudane'; npm run db:seed -w @sep/api || echo 'UWAGA: seed nieudany'; node apps/api/dist/src/main.js"
+CMD sh -c "timeout 120 npm run db:push -w @sep/api || echo 'UWAGA: db:push nieudane lub timeout'; timeout 120 npm run db:seed -w @sep/api || echo 'UWAGA: seed nieudany lub timeout'; node apps/api/dist/src/main.js"

@@ -45,6 +45,26 @@ Każda pracownica na swoim telefonie:
 
 Nowe pracownice dodajesz w panelu: **Admin → Pracownice → Dodaj pracownicę** (ustawiasz login, hasło, normę, etat).
 
+## Baza danych na Neon (zamiast darmowego Postgresa Render)
+
+**Darmowy Postgres na Render wygasa po 30 dniach i jest kasowany razem z danymi.** Neon ma
+darmowy plan bez daty ważności — to tam powinna stać baza produkcyjna.
+
+1. https://neon.tech → **Sign up** (GitHubem) → **Create project**.
+   - Nazwa: `bozek`, Postgres 16.
+   - **Region: AWS us-west-2 (Oregon)** — usługa `bozek-api` faktycznie stoi w Render
+     `gcp-us-west1` (Oregon), więc baza obok = minimalne opóźnienie. Baza w Europie
+     doda ~150 ms do *każdego* zapytania.
+2. Skopiuj **Connection string** → wariant **Direct connection** (nie „Pooled").
+   Aplikacja ma kilku użytkowników, pooler jest zbędny, a `prisma db push` lubi łącze
+   bezpośrednie. Ciąg zawiera już `?sslmode=require` — zostaw go.
+3. Render → usługa **bozek-api** → **Environment** → pole `DATABASE_URL` → wklej ciąg → **Save**.
+   Render sam zrobi redeploy. Przy starcie `db:push` zakłada schemat, a `db:seed` konta demo.
+4. Sprawdzenie: `https://bozek-api.onrender.com/api/health` ma zwrócić `{"status":"ok","db":"up"}`.
+
+> **Nie klikaj „Sync/Apply" na blueprincie** po tej zmianie — `render.yaml` wpisuje
+> `DATABASE_URL` z bazy Render (`fromDatabase`) i nadpisze adres Neona.
+
 ## Uwagi
 
 - **Darmowy plan Render** usypia usługę po ~15 min bezczynności — pierwsze wejście rano bywa wolniejsze (kilkanaście sekund). Do realnej codziennej pracy warto wziąć najtańszy płatny plan (zawsze aktywny).
