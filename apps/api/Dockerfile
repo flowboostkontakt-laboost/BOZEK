@@ -20,8 +20,13 @@ RUN apt-get update && apt-get install -y openssl ca-certificates && rm -rf /var/
 # Kopiujemy cały zbudowany workspace (root package.json, node_modules, dist, prisma).
 COPY --from=build /app ./
 EXPOSE 3000
-# Migracja + seed (idempotentny). Błędy nie zatrzymują serwera → /api/health zawsze odpowiada.
-# `timeout` jest kluczowy: przy nieosiągalnej bazie prisma db push nie kończy się
-# błędem, tylko wisi w nieskończoność — kontener nigdy nie dochodził do main.js.
+# Migracja + seed (idempotentny) lecą W TLE, a serwer podnosi port od razu.
+# Kolejno, przed startem, byłoby prościej — ale przy nieosiągalnej bazie prisma db push
+# nie kończy się błędem, tylko wisi. Port wstawał wtedy z wielkim opóźnieniem (albo
+# wcale), health check Rendera na /api/health nie zdążał i CAŁY DEPLOY szedł jako
+# nieudany. Teraz baza nie ma wpływu na to, czy usługa wstanie: /api/health odpowiada
+# od pierwszych sekund i uczciwie raportuje db:"up"/"down".
+# `timeout` to bezpiecznik, żeby zawieszony db:push nie wisiał w kontenerze bez końca.
+# `exec` stawia node jako PID 1 → SIGTERM z Rendera dochodzi i wyłączenie jest czyste.
 # Entry serwera: dist/src/main.js (nest zagnieżdża pod src/).
-CMD sh -c "timeout 120 npm run db:push -w @sep/api || echo 'UWAGA: db:push nieudane lub timeout'; timeout 120 npm run db:seed -w @sep/api || echo 'UWAGA: seed nieudany lub timeout'; node apps/api/dist/src/main.js"
+CMD sh -c "(timeout 300 npm run db:push -w @sep/api || echo 'UWAGA: db:push nieudane lub timeout'; timeout 120 npm run db:seed -w @sep/api || echo 'UWAGA: seed nieudany lub timeout') & exec node apps/api/dist/src/main.js"
