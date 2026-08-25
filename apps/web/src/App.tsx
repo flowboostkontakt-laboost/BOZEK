@@ -1,5 +1,5 @@
 import { type ReactNode } from "react";
-import { Link, Navigate, Route, Routes } from "react-router-dom";
+import { Link, Route, Routes } from "react-router-dom";
 import { ProgressRing } from "./components/ProgressRing";
 import { AuthProvider, useAuth } from "./lib/auth";
 import { Login } from "./features/auth/Login";
@@ -22,15 +22,46 @@ function Splash() {
   );
 }
 
+/**
+ * Konto trafiło na niewłaściwą sekcję (np. właścicielka zalogowana jako admin
+ * otwiera link do aplikacji pracownicy). Wcześniej robiliśmy cichy redirect —
+ * wyglądało to tak, jakby wejście do apki pracownicy było zablokowane.
+ * Teraz mówimy wprost, co się dzieje, i dajemy przełączenie konta jednym kliknięciem.
+ */
+function ZlaSekcja({ chciano }: { chciano: "ADMIN" | "WORKER" }) {
+  const { user, logout } = useAuth();
+  const doPracownicy = chciano === "WORKER";
+  return (
+    <div className="grid min-h-screen place-items-center bg-bg px-6">
+      <div className="card w-full max-w-md p-6 text-center">
+        <p className="text-lg font-semibold">
+          {doPracownicy ? "To jest aplikacja pracownicy" : "To jest panel administratora"}
+        </p>
+        <p className="mt-2 text-sm text-ink-muted">
+          Jesteś zalogowana jako <span className="font-medium text-ink">{user?.name}</span>{" "}
+          ({user?.role === "ADMIN" ? "administrator" : "pracownica"}).{" "}
+          {doPracownicy
+            ? "Żeby zobaczyć, co widzi pracownica, wyloguj się i zaloguj jej kontem."
+            : "Panel administratora wymaga konta administratora."}
+        </p>
+        <div className="mt-6 flex flex-col gap-2">
+          <button onClick={logout} className="btn-primary">
+            Wyloguj i zaloguj innym kontem
+          </button>
+          <Link to={user?.role === "WORKER" ? "/app" : "/admin"} className="btn-ghost">
+            {user?.role === "WORKER" ? "Wróć do aplikacji pracownicy" : "Wróć do panelu administratora"}
+          </Link>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function RequireAuth({ role, children }: { role?: "ADMIN" | "WORKER"; children: ReactNode }) {
   const { user, loading } = useAuth();
   if (loading) return <Splash />;
   if (!user) return <Login />;
-  if (role && user.role !== role) {
-    // Konto trafiło na niewłaściwą sekcję (np. admin otwiera apkę startującą na /app)
-    // → przekieruj automatycznie do właściwej, bez komunikatu.
-    return <Navigate to={user.role === "WORKER" ? "/app" : "/admin"} replace />;
-  }
+  if (role && user.role !== role) return <ZlaSekcja chciano={role} />;
   return <>{children}</>;
 }
 

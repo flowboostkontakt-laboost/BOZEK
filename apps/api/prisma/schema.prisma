@@ -65,11 +65,22 @@ model Category {
   id           String     @id @default(cuid())
   prestaId     String?    @unique
   name         String
-  // Domyślny udział % normy: Opaski 50, Turbany 100 (spec 4.2).
-  normPct      Int        @default(100)
+  // Udział % normy USTAWIONY NA TYM POZIOMIE. null = dziedziczy po kategorii
+  // nadrzędnej (a gdy nikt w gałęzi nie ustawił — 100 %). Dzięki temu kategoria
+  // może mieć 100 %, jej podkategoria 80 %, a pojedynczy produkt 60 %.
+  normPct      Int?
+  // Drzewo menu sklepu: kategoria → podkategoria → … (PrestaShop id_parent).
+  parent       Category?  @relation("CategoryTree", fields: [parentId], references: [id])
+  parentId     String?
+  children     Category[] @relation("CategoryTree")
+  // Kolejność z menu sklepu i widoczność (nieaktywne w sklepie = ukryte tutaj).
+  position     Int        @default(0)
+  active       Boolean    @default(true)
   products     Product[]
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
+
+  @@index([parentId])
 }
 
 model Product {

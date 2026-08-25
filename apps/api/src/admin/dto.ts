@@ -33,7 +33,8 @@ export class UpdateEmployeeDto {
 }
 
 export class UpdateCategoryDto {
-  @IsInt() @Min(0) @Max(1000) normPct!: number;
+  /** null / pominiete = kategoria dziedziczy % po kategorii nadrzednej. */
+  @IsOptional() @IsInt() @Min(0) @Max(1000) normPct?: number | null;
 }
 
 export class ProductOverrideDto {

@@ -5,7 +5,7 @@ const prisma = new PrismaClient();
 
 /**
  * Dane demonstracyjne odwzorowujące mockup:
- *  • Kategorie: Opaski 50%, Turbany 100%, Chusty 100%
+ *  • Kategorie: Opaski 50%, Turbany 100% (→ podkategoria Welurowe 80%), Chusty 100%
  *  • Pracownice: Ania (1750/8h), Basia (1750/6h → norma 1312,5), Kasia (2000/8h)
  *  • Progi premiowe: 100% → 300 zł, 110% → 600 zł
  *  • Konta: admin/admin123, ania/praca123, basia/praca123, kasia/praca123
@@ -17,15 +17,19 @@ async function main() {
     return;
   }
 
+  // Mini-drzewo demo: Turbany 100 % → Turbany welurowe 80 % (dziedziczenie w akcji).
   const [opaski, turbany, chusty] = await Promise.all([
-    prisma.category.create({ data: { name: "Opaski", normPct: 50 } }),
-    prisma.category.create({ data: { name: "Turbany", normPct: 100 } }),
-    prisma.category.create({ data: { name: "Chusty", normPct: 100 } }),
+    prisma.category.create({ data: { name: "Opaski", normPct: 50, position: 1 } }),
+    prisma.category.create({ data: { name: "Turbany", normPct: 100, position: 2 } }),
+    prisma.category.create({ data: { name: "Chusty", normPct: 100, position: 3 } }),
   ]);
+  const welurowe = await prisma.category.create({
+    data: { name: "Turbany welurowe", normPct: 80, parentId: turbany.id, position: 1 },
+  });
 
   await prisma.product.createMany({
     data: [
-      { name: "Turban Velvet", last4: "0921", pricePln: "250.00", categoryId: turbany.id },
+      { name: "Turban Velvet", last4: "0921", pricePln: "250.00", categoryId: welurowe.id },
       { name: "Opaska czerwona", last4: "1015", pricePln: "120.00", categoryId: opaski.id },
       { name: "Chusta lniana", last4: "3307", pricePln: "180.00", categoryId: chusty.id },
     ],

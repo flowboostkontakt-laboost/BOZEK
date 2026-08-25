@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import { obowiazujaceProgi, premiaZaMiesiac, procentNormy } from "@sep/shared";
+import { efektywnyPctKategorii, obowiazujaceProgi, premiaZaMiesiac, procentNormy } from "@sep/shared";
 import { PrismaService } from "../prisma/prisma.service";
 import { SyncService } from "../sync/sync.service";
 import { NormsService } from "./norms.service";
@@ -107,11 +107,18 @@ export class DashboardService {
     });
     const todayUnits = todays.reduce((a, e) => a + e.quantity, 0);
 
+    // Udział % z gałęzi drzewa (własny albo odziedziczony po kategorii nadrzędnej).
+    const drzewo = await this.prisma.category.findMany({
+      select: { id: true, parentId: true, normPct: true },
+    });
     const catMap = new Map<string, { udzialPct: number; sztuki: number }>();
     for (const e of todays) {
       const cat = e.product?.category;
       if (!cat) continue;
-      const cur = catMap.get(cat.name) ?? { udzialPct: cat.normPct, sztuki: 0 };
+      const cur = catMap.get(cat.name) ?? {
+        udzialPct: efektywnyPctKategorii(cat.id, drzewo).pct,
+        sztuki: 0,
+      };
       cur.sztuki += e.quantity;
       catMap.set(cat.name, cur);
     }

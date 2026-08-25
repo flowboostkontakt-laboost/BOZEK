@@ -1,5 +1,12 @@
 import { Injectable } from "@nestjs/common";
-import { normaEfektywnaDnia, normaMiesieczna, normaZOkresu, procentNormy, wartoscPozycji } from "@sep/shared";
+import {
+  efektywnyPctProduktu,
+  normaEfektywnaDnia,
+  normaMiesieczna,
+  normaZOkresu,
+  procentNormy,
+  wartoscPozycji,
+} from "@sep/shared";
 import type { AttendanceDay } from "@sep/shared";
 import { PrismaService } from "../prisma/prisma.service";
 
@@ -29,19 +36,20 @@ export class NormsService {
     return x;
   }
 
-  /** Wartość pozycji produktowej w przeliczeniu na normę. */
+  /**
+   * Wartość pozycji produktowej w przeliczeniu na normę.
+   * Przelicznik bierzemy z gałęzi drzewa: nadpisanie produktu → jego kategoria →
+   * kategorie nadrzędne → 100 %. Kategorie pobieramy wszystkie (także wygaszone),
+   * żeby stare wpisy dalej wyceniały się tak samo.
+   */
   async entryValue(productId: string, quantity: number): Promise<number> {
-    const product = await this.prisma.product.findUnique({
-      where: { id: productId },
-      include: { category: true },
-    });
+    const [product, categories] = await Promise.all([
+      this.prisma.product.findUnique({ where: { id: productId } }),
+      this.prisma.category.findMany({ select: { id: true, parentId: true, normPct: true } }),
+    ]);
     if (!product) return 0;
-    return wartoscPozycji(
-      num(product.pricePln),
-      product.category.normPct,
-      quantity,
-      product.normPctOverride ?? undefined,
-    );
+    const pct = efektywnyPctProduktu(product.normPctOverride, product.categoryId, categories).pct;
+    return wartoscPozycji(num(product.pricePln), pct, quantity);
   }
 
   async dayProgress(employeeId: string, date: Date = new Date()): Promise<Progress> {

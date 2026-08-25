@@ -37,3 +37,96 @@ export function znajdzPoKodzie<T extends DopasowywalnyProdukt>(
 
   return undefined;
 }
+
+/**
+ * DRZEWO KATEGORII I DZIEDZICZENIE % NORMY
+ *
+ * Katalog odwzorowuje menu sklepu: kategoria → podkategoria → … → produkt.
+ * Na każdym poziomie można ustawić własny % normy; brak ustawienia (null)
+ * oznacza „dziedziczę po rodzicu”. Przykład z wymagań klientki:
+ *   Turbany 100 % → podkategoria Turbany welurowe 80 % → produkt „Velvet” 60 %.
+ */
+
+/** Domyślny przelicznik, gdy nic nie ustawiono w całej gałęzi. */
+export const DOMYSLNY_PCT_NORMY = 100;
+
+/** Minimalny kształt węzła drzewa kategorii potrzebny do wyliczenia %. */
+export interface WezelKategorii {
+  id: string;
+  parentId?: string | null;
+  /** Własne ustawienie % normy. null/undefined = dziedziczy po rodzicu. */
+  normPct?: number | null;
+}
+
+/** Skąd wzięła się obowiązująca wartość — UI pokazuje to pracodawcy wprost. */
+export type ZrodloPct = "wlasny" | "dziedziczony" | "domyslny";
+
+export interface EfektywnyPct {
+  pct: number;
+  zrodlo: ZrodloPct;
+  /** Id kategorii, z której pochodzi wartość (null dla wartości domyślnej). */
+  zrodloId: string | null;
+}
+
+function indeks(wezly: Iterable<WezelKategorii>): Map<string, WezelKategorii> {
+  const map = new Map<string, WezelKategorii>();
+  for (const w of wezly) map.set(w.id, w);
+  return map;
+}
+
+/**
+ * Obowiązujący % normy dla kategorii: pierwsza ustawiona wartość idąc w górę
+ * drzewa (własna → rodzic → dziadek → …), a gdy nigdzie nic nie ustawiono — 100 %.
+ * Odporne na zapętlony parentId (uszkodzone dane nie zawieszą serwera).
+ */
+export function efektywnyPctKategorii(
+  categoryId: string | null | undefined,
+  wezly: Iterable<WezelKategorii> | Map<string, WezelKategorii>,
+): EfektywnyPct {
+  const map = wezly instanceof Map ? wezly : indeks(wezly);
+  const odwiedzone = new Set<string>();
+  let biezacy = categoryId ? map.get(categoryId) : undefined;
+  let pierwszy = true;
+
+  while (biezacy && !odwiedzone.has(biezacy.id)) {
+    odwiedzone.add(biezacy.id);
+    if (biezacy.normPct != null) {
+      return { pct: biezacy.normPct, zrodlo: pierwszy ? "wlasny" : "dziedziczony", zrodloId: biezacy.id };
+    }
+    pierwszy = false;
+    biezacy = biezacy.parentId ? map.get(biezacy.parentId) : undefined;
+  }
+
+  return { pct: DOMYSLNY_PCT_NORMY, zrodlo: "domyslny", zrodloId: null };
+}
+
+/**
+ * Obowiązujący % normy dla produktu: własne nadpisanie ma pierwszeństwo,
+ * w przeciwnym razie wartość z gałęzi kategorii.
+ */
+export function efektywnyPctProduktu(
+  normPctOverride: number | null | undefined,
+  categoryId: string | null | undefined,
+  wezly: Iterable<WezelKategorii> | Map<string, WezelKategorii>,
+): EfektywnyPct {
+  if (normPctOverride != null) return { pct: normPctOverride, zrodlo: "wlasny", zrodloId: null };
+  const zKategorii = efektywnyPctKategorii(categoryId, wezly);
+  return { ...zKategorii, zrodlo: zKategorii.zrodlo === "domyslny" ? "domyslny" : "dziedziczony" };
+}
+
+/** Ścieżka od korzenia do wskazanej kategorii (okruszki nawigacji w panelu). */
+export function sciezkaKategorii<T extends WezelKategorii>(
+  categoryId: string | null | undefined,
+  wezly: Iterable<T> | Map<string, T>,
+): T[] {
+  const map = (wezly instanceof Map ? wezly : indeks(wezly as Iterable<WezelKategorii>)) as Map<string, T>;
+  const sciezka: T[] = [];
+  const odwiedzone = new Set<string>();
+  let biezacy = categoryId ? map.get(categoryId) : undefined;
+  while (biezacy && !odwiedzone.has(biezacy.id)) {
+    odwiedzone.add(biezacy.id);
+    sciezka.unshift(biezacy);
+    biezacy = biezacy.parentId ? map.get(biezacy.parentId) : undefined;
+  }
+  return sciezka;
+}

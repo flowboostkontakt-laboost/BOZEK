@@ -5,13 +5,24 @@ import { parseStringPromise } from "xml2js";
 export interface PsCategory {
   id: string;
   name: string;
+  /** Kategoria nadrzędna z menu sklepu (PrestaShop id_parent). */
+  parentId?: string;
+  /** Głębokość w drzewie: 0 = Root, 1 = Strona główna, ≥2 = pozycje menu. */
+  depth?: number;
+  position: number;
+  active: boolean;
+  /** Korzeń sklepu (Root / Strona główna) — nie jest pozycją menu. */
+  isRoot: boolean;
 }
 
 export interface PsProduct {
   id: string;
   name: string;
   price: number;
+  /** Kategoria domyślna (id_category_default). */
   categoryId?: string;
+  /** Wszystkie kategorie produktu (associations) — do wpięcia w drzewo menu. */
+  categoryIds: string[];
   barcode?: string;
   active: boolean;
 }
@@ -57,6 +68,11 @@ export class PrestashopClient {
     return readCollection(data, ["prestashop", "categories", "category"], ["categories", "category"], ["categories"]).map((c: any) => ({
       id: String(getField(c, "id") ?? ""),
       name: lang(getField(c, "name")),
+      parentId: text(getField(c, "id_parent")) || undefined,
+      depth: numberOrUndefined(getField(c, "level_depth")),
+      position: Number(text(getField(c, "position")) || 0),
+      active: truthy(getField(c, "active")),
+      isRoot: truthy(getField(c, "is_root_category")),
     }));
   }
 
@@ -67,10 +83,34 @@ export class PrestashopClient {
       name: lang(getField(p, "name")),
       price: Number(text(getField(p, "price")) || 0),
       categoryId: text(getField(p, "id_category_default")) || undefined,
+      categoryIds: readProductCategories(getField(p, "associations")),
       barcode: text(getField(p, "ean13")) || text(getField(p, "reference")) || undefined,
       active: truthy(getField(p, "active")),
     }));
   }
+}
+
+function numberOrUndefined(v: unknown): number | undefined {
+  const t = text(v);
+  if (!t) return undefined;
+  const n = Number(t);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+/**
+ * Lista kategorii produktu z bloku `associations`. PrestaShop zwraca ją inaczej
+ * w JSON (`categories: [{id}]`) niż w XML (`categories.category`), a przy jednej
+ * kategorii — jako pojedynczy obiekt zamiast tablicy.
+ */
+function readProductCategories(associations: unknown): string[] {
+  if (!associations || typeof associations !== "object") return [];
+  const raw = (associations as Record<string, unknown>).categories;
+  if (!raw) return [];
+  const list = Array.isArray(raw)
+    ? raw
+    : asList((raw as Record<string, unknown>).category ?? raw);
+  const ids = list.map((c) => (typeof c === "object" ? text(getField(c, "id")) : text(c))).filter(Boolean);
+  return [...new Set(ids)];
 }
 
 function lang(v: unknown): string {

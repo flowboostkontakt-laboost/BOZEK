@@ -2,6 +2,7 @@ import { Injectable, Logger, OnApplicationBootstrap } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
 import { SyncStatus } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
+import { menuKategorii, wybierzKategorie } from "@sep/shared";
 import { PrestashopClient } from "./prestashop.client";
 
 @Injectable()
@@ -44,7 +45,19 @@ export class SyncService implements OnApplicationBootstrap {
     }
   }
 
-  async run(): Promise<{ status: SyncStatus; count: number }> {
+  /**
+   * Pełna synchronizacja katalogu z menu sklepu.
+   *
+   * Reguły (uzgodnione z klientką):
+   *  • bierzemy WYŁĄCZNIE aktywne kategorie z menu sklepu — bez korzenia
+   *    („Root”, „Strona główna”) i bez gałęzi wyłączonych w PrestaShopie,
+   *  • odwzorowujemy drzewo kategoria → podkategoria → … (id_parent),
+   *  • nie pobieramy produktów nieaktywnych; gdy produkt zostanie w sklepie
+   *    włączony, kolejna synchronizacja wciąga go do systemu,
+   *  • nic nie kasujemy — to, co wypadło z menu, jest tylko wygaszane
+   *    (`active = false`), bo do produktów przypięta jest historia ewidencji.
+   */
+  async run(): Promise<{ status: SyncStatus; count: number; message: string }> {
     if (!this.ps.isConfigured()) {
       throw new Error("Brak konfiguracji PrestaShop: ustaw PRESTASHOP_API_URL i PRESTASHOP_API_KEY");
     }
@@ -53,48 +66,102 @@ export class SyncService implements OnApplicationBootstrap {
     try {
       const [cats, prods] = await Promise.all([this.ps.fetchCategories(), this.ps.fetchProducts()]);
 
-      const catMap = new Map<string, string>();
-      for (const c of cats) {
+      const menu = menuKategorii(cats);
+      if (menu.length === 0) {
+        throw new Error(
+          `Sklep nie zwrócił żadnej aktywnej kategorii menu (pobrano ${cats.length} kategorii) — katalog zostaje bez zmian.`,
+        );
+      }
+
+      // Kategorie zapisujemy od korzenia w dół, żeby rodzic istniał przed dzieckiem.
+      const catMap = new Map<string, string>(); // prestaId → id lokalne
+      for (const c of menu) {
+        const parentLocalId = (c.parentId && catMap.get(c.parentId)) || null;
         const rec = await this.prisma.category.upsert({
           where: { prestaId: c.id },
-          update: { name: c.name },
-          create: { prestaId: c.id, name: c.name, normPct: 100 },
+          // normPct celowo nietknięty — to ustawienie właścicielki, nie sklepu.
+          update: { name: c.name, parentId: parentLocalId, position: c.position, active: true },
+          create: {
+            prestaId: c.id,
+            name: c.name,
+            parentId: parentLocalId,
+            position: c.position,
+            active: true,
+            normPct: null,
+          },
         });
         catMap.set(c.id, rec.id);
       }
 
+      const depthOf = new Map(menu.map((c) => [c.id, c.depth]));
       let count = 0;
+      let pominietoNieaktywne = 0;
+      let pominietoPozaMenu = 0;
+      const zaimportowane: string[] = [];
+
       for (const p of prods) {
-        const categoryId = (p.categoryId && catMap.get(p.categoryId)) || (await this.fallbackCategory());
+        if (!p.active) {
+          pominietoNieaktywne++;
+          continue;
+        }
+        const prestaCatId = wybierzKategorie(p, catMap, depthOf);
+        if (!prestaCatId) {
+          pominietoPozaMenu++;
+          continue;
+        }
+        const dane = {
+          name: p.name,
+          pricePln: p.price.toFixed(2),
+          barcode: p.barcode ?? null,
+          active: true,
+          categoryId: catMap.get(prestaCatId)!,
+          last4: p.id.slice(-4),
+        };
         await this.prisma.product.upsert({
           where: { prestaId: p.id },
-          update: {
-            name: p.name,
-            pricePln: p.price.toFixed(2),
-            barcode: p.barcode ?? null,
-            active: p.active,
-            categoryId,
-            last4: p.id.slice(-4),
-          },
-          create: {
-            prestaId: p.id,
-            name: p.name,
-            pricePln: p.price.toFixed(2),
-            barcode: p.barcode ?? null,
-            active: p.active,
-            categoryId,
-            last4: p.id.slice(-4),
-          },
+          update: dane,
+          create: { prestaId: p.id, ...dane },
         });
+        zaimportowane.push(p.id);
         count++;
       }
 
+      // Zero pobranych produktów przy niepustym menu = coś jest nie tak po stronie
+      // sklepu (albo z mapowaniem kategorii). Przerywamy PRZED wygaszaniem, żeby
+      // nie wyczyścić katalogu, z którego pracownice właśnie korzystają.
+      if (count === 0) {
+        throw new Error(
+          `Nie pobrano żadnego produktu (sklep zwrócił ${prods.length}: ${pominietoNieaktywne} nieaktywnych, ${pominietoPozaMenu} spoza menu) — katalog zostaje bez zmian.`,
+        );
+      }
+
+      // Wygaszenie tego, czego nie ma już w menu (wyłączone w sklepie, usunięte,
+      // albo pozostałości demo bez prestaId). Historia ewidencji zostaje nietknięta.
+      const wygaszoneProdukty = await this.prisma.product.updateMany({
+        where: { active: true, OR: [{ prestaId: null }, { prestaId: { notIn: zaimportowane } }] },
+        data: { active: false },
+      });
+      const wygaszoneKategorie = await this.prisma.category.updateMany({
+        where: { active: true, OR: [{ prestaId: null }, { prestaId: { notIn: [...catMap.keys()] } }] },
+        data: { active: false },
+      });
+
+      const message = [
+        `Menu sklepu: ${menu.length} kategorii, ${count} aktywnych produktów.`,
+        `Pominięto ${pominietoNieaktywne} nieaktywnych i ${pominietoPozaMenu} spoza menu.`,
+        wygaszoneProdukty.count || wygaszoneKategorie.count
+          ? `Wygaszono ${wygaszoneProdukty.count} produktów i ${wygaszoneKategorie.count} kategorii.`
+          : "",
+      ]
+        .filter(Boolean)
+        .join(" ");
+
       await this.prisma.syncLog.update({
         where: { id: started.id },
-        data: { status: SyncStatus.SUCCESS, productsCount: count, finishedAt: new Date() },
+        data: { status: SyncStatus.SUCCESS, productsCount: count, message, finishedAt: new Date() },
       });
-      this.log.log(`Sync OK - ${count} products`);
-      return { status: SyncStatus.SUCCESS, count };
+      this.log.log(`Sync OK — ${message}`);
+      return { status: SyncStatus.SUCCESS, count, message };
     } catch (e) {
       await this.prisma.syncLog.update({
         where: { id: started.id },
@@ -114,14 +181,6 @@ export class SyncService implements OnApplicationBootstrap {
       agoText: last.finishedAt ? timeAgo(last.finishedAt) : "w toku",
       message: last.message,
     };
-  }
-
-  private async fallbackCategory(): Promise<string> {
-    const name = "Nieskategoryzowane";
-    const existing = await this.prisma.category.findFirst({ where: { name } });
-    if (existing) return existing.id;
-    const created = await this.prisma.category.create({ data: { name, normPct: 100 } });
-    return created.id;
   }
 }
 

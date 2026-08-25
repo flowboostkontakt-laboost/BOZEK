@@ -42,17 +42,6 @@ export const employeesFixture: EmployeeRow[] = [
   { id: "3", name: "Kasia", baseNormPln: 2000, defaultHours: 8, active: true, login: "kasia" },
 ];
 
-export interface CategoryRow {
-  id: string;
-  name: string;
-  normPct: number;
-}
-export const categoriesFixture: CategoryRow[] = [
-  { id: "c1", name: "Opaski", normPct: 50 },
-  { id: "c2", name: "Turbany", normPct: 100 },
-  { id: "c3", name: "Chusty", normPct: 100 },
-];
-
 export interface ReviewItem {
   id: string;
   employee: { name: string };
