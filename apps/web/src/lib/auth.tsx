@@ -48,6 +48,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .finally(() => setLoading(false));
   }, []);
 
+  // Gdy odnowa sesji ostatecznie sie nie powiedzie, warstwa API czysci tokeny
+  // i wysyla to zdarzenie — wtedy wracamy do ekranu logowania.
+  useEffect(() => {
+    const onWygasla = () => setUser(null);
+    window.addEventListener("sesja-wygasla", onWygasla);
+    return () => window.removeEventListener("sesja-wygasla", onWygasla);
+  }, []);
+
   const login = async (login: string, password: string) => {
     const res = await apiPost<{ accessToken: string; refreshToken: string; user: MeResponse }>(
       "/auth/login",

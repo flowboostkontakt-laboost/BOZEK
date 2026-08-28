@@ -6,7 +6,8 @@ type DayType = "WORK" | "VACATION" | "SICK_LEAVE" | null;
 
 const CYCLE: Record<string, DayType> = { "": "WORK", WORK: "VACATION", VACATION: "SICK_LEAVE", SICK_LEAVE: null };
 const STYLE: Record<string, string> = {
-  WORK: "bg-accent text-white",
+  // Praca na zielono — tak samo jak w apce pracownicy.
+  WORK: "bg-ok font-medium text-bg",
   VACATION: "bg-warn/25 text-warn",
   SICK_LEAVE: "bg-bad/25 text-bad",
 };
@@ -239,7 +240,7 @@ function MonthEditor({ employees, onChanged }: { employees: EmployeeRow[]; onCha
           })}
         </div>
         <div className="mt-5 flex flex-wrap gap-4 text-xs text-ink-muted">
-          <Legend cls="bg-accent" label="Praca" />
+          <Legend cls="bg-ok" label="Praca" />
           <Legend cls="bg-warn" label="Urlop" />
           <Legend cls="bg-bad" label="Chorobowe" />
         </div>

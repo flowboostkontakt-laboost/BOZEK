@@ -116,10 +116,17 @@ export class SyncService implements OnApplicationBootstrap {
           active: true,
           categoryId: catMap.get(prestaCatId)!,
           last4: p.id.slice(-4),
+          photoUrl: p.photoUrl ?? null,
         };
+        const istniejacy = await this.prisma.product.findUnique({
+          where: { prestaId: p.id },
+          select: { photoUrl: true },
+        });
+        // Zmiana zdjęcia unieważnia wektor — inaczej AI dopasowywałoby po starym.
+        const zdjecieZmienione = !!istniejacy && istniejacy.photoUrl !== (p.photoUrl ?? null);
         await this.prisma.product.upsert({
           where: { prestaId: p.id },
-          update: dane,
+          update: zdjecieZmienione ? { ...dane, embedding: [], embeddedAt: null } : dane,
           create: { prestaId: p.id, ...dane },
         });
         zaimportowane.push(p.id);

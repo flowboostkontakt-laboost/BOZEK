@@ -14,7 +14,7 @@ import {
   IconMinus,
   IconPlus,
 } from "../../components/icons";
-import { kolorPostepu, znajdzPoKodzie } from "@sep/shared";
+import { MAX_CYFR_ID, MIN_CYFR_ID, kolorPostepu, wygladaJakId, znajdzPoKodzie, znajdzWszystkiePoId } from "@sep/shared";
 import { useAuth } from "../../lib/auth";
 import { apiGet, apiPost, apiUpload, apiDelete } from "../../lib/api";
 import { catalog as fixtureCatalog, type RecentEntry } from "../../lib/fixtures";
@@ -29,6 +29,34 @@ interface Prod {
   color: string;
 }
 
+
+interface AiKandydat {
+  id: string;
+  name: string;
+  category: string;
+  photoUrl: string | null;
+  score: number;
+}
+
+interface AiOdpowiedz {
+  matched: boolean;
+  product: AiKandydat | null;
+  candidates: AiKandydat[];
+  suggestReview: boolean;
+  reason: string | null;
+}
+
+interface ShiftState {
+  active: boolean;
+  startedAt: string | null;
+  forgotten: { id: string; startedAt: string; suggestedEnd: string } | null;
+}
+
+interface Zapomniana {
+  id: string;
+  startedAt: Date;
+  suggestedEnd: Date;
+}
 
 type Screen = "dashboard" | "method" | "manual" | "scan" | "photo" | "confirm" | "task" | "stats" | "calendar";
 
@@ -50,6 +78,9 @@ export function WorkerApp() {
   const [progress, setProgress] = useState({ dayPct: 0, weekPct: 0, monthPct: 0 });
   const [recent, setRecent] = useState<RecentEntry[]>([]);
   const [shiftStart, setShiftStart] = useState<Date | null>(null);
+  // Zmiana z poprzedniego dnia, ktorej pracownica nie zakonczyla (punkt 6 uwag).
+  const [zapomniana, setZapomniana] = useState<Zapomniana | null>(null);
+  const [blad, setBlad] = useState<string | null>(null);
 
   const load = () => {
     apiGet<{ id: string; name: string; category: string; last4: string; barcode: string }[]>("/worker/products")
@@ -59,8 +90,19 @@ export function WorkerApp() {
       .catch(() => void 0);
     apiGet<{ dayPct: number; weekPct: number; monthPct: number }>("/worker/me/progress").then(setProgress).catch(() => void 0);
     apiGet<RecentEntry[]>("/worker/entries/recent").then(setRecent).catch(() => void 0);
-    apiGet<{ active: boolean; startedAt: string | null }>("/worker/shift/current")
-      .then((r) => setShiftStart(r.startedAt ? new Date(r.startedAt) : null))
+    apiGet<ShiftState>("/worker/shift/current")
+      .then((r) => {
+        setShiftStart(r.startedAt ? new Date(r.startedAt) : null);
+        setZapomniana(
+          r.forgotten
+            ? {
+                id: r.forgotten.id,
+                startedAt: new Date(r.forgotten.startedAt),
+                suggestedEnd: new Date(r.forgotten.suggestedEnd),
+              }
+            : null,
+        );
+      })
       .catch(() => void 0);
   };
   useEffect(load, []);
@@ -68,14 +110,32 @@ export function WorkerApp() {
   const startShift = async () => {
     try {
       const r = await apiPost<{ startedAt: string }>("/worker/shift/start");
+      // Czas liczymy ZAWSZE od godziny z serwera — po przelogowaniu licznik
+      // wraca do faktycznego startu, a nie zaczyna od zera (punkt 3 uwag).
       setShiftStart(new Date(r.startedAt));
+      setZapomniana(null);
+      setBlad(null);
     } catch {
-      setShiftStart(new Date());
+      setBlad("Nie udało się rozpocząć pracy — sprawdź połączenie i spróbuj ponownie.");
     }
   };
   const stopShift = async () => {
-    apiPost("/worker/shift/stop").catch(() => void 0);
-    setShiftStart(null);
+    try {
+      await apiPost("/worker/shift/stop");
+      setShiftStart(null);
+      setBlad(null);
+    } catch {
+      setBlad("Nie udało się zakończyć pracy — spróbuj ponownie.");
+    }
+  };
+  const domknijZapomniana = async (endedAt: Date) => {
+    if (!zapomniana) return;
+    await apiPost("/worker/shift/finish-forgotten", {
+      sessionId: zapomniana.id,
+      endedAt: endedAt.toISOString(),
+    });
+    setZapomniana(null);
+    load();
   };
 
   const toConfirm = (p: Prod, score: number | null = null) => {
@@ -113,6 +173,7 @@ export function WorkerApp() {
           progress={progress}
           recent={recent}
           shiftStart={shiftStart}
+          blad={blad}
           onStartShift={startShift}
           onStopShift={stopShift}
           onMenu={() => setMenu(true)}
@@ -145,6 +206,7 @@ export function WorkerApp() {
         <PhotoEntry
           products={products}
           onBack={() => setScreen("method")}
+          onManual={() => setScreen("manual")}
           onRecognized={(p, score, dataUrl) => {
             setPhoto(dataUrl);
             toConfirm(p, score);
@@ -163,6 +225,14 @@ export function WorkerApp() {
         />
       )}
       {screen === "task" && <TaskEntry onBack={() => setScreen("dashboard")} onSent={() => setScreen("dashboard")} />}
+
+      {zapomniana && (
+        <ZapomnianaZmiana
+          dane={zapomniana}
+          onZapisz={domknijZapomniana}
+          onOdloz={() => setZapomniana(null)}
+        />
+      )}
 
       {menu && (
         <Menu
@@ -251,6 +321,7 @@ function Dashboard({
   progress,
   recent,
   shiftStart,
+  blad,
   onStartShift,
   onStopShift,
   onMenu,
@@ -261,6 +332,7 @@ function Dashboard({
   progress: { dayPct: number; weekPct: number; monthPct: number };
   recent: RecentEntry[];
   shiftStart: Date | null;
+  blad: string | null;
   onStartShift: () => void;
   onStopShift: () => void;
   onMenu: () => void;
@@ -285,6 +357,7 @@ function Dashboard({
       </div>
 
       <WorkTimer start={shiftStart} onStart={onStartShift} onStop={onStopShift} />
+      {blad && <p className="mx-4 mt-2 rounded-xl bg-bad/10 px-3 py-2 text-sm text-bad">{blad}</p>}
 
       {/* Trzy pierścienie — rozmiar 96, żeby zmieściły się na wąskich telefonach. */}
       <div className="mx-4 mt-3 flex items-center justify-around rounded-2xl border border-line bg-surface-1 py-6">
@@ -329,7 +402,7 @@ function Dashboard({
 
 function MethodPicker({ onBack, onManual, onScan, onPhoto }: { onBack: () => void; onManual: () => void; onScan: () => void; onPhoto: () => void }) {
   const methods = [
-    { icon: IconKeypad, title: "Ręczne ID", sub: "Wpisz 4 ostatnie cyfry", on: onManual },
+    { icon: IconKeypad, title: "Ręczne ID", sub: "Wpisz 2–4 ostatnie cyfry", on: onManual },
     { icon: IconBarcode, title: "Skanuj kod", sub: "Zeskanuj aparatem", on: onScan },
     { icon: IconCamera, title: "Zdjęcie (AI)", sub: "Zrób zdjęcie produktu", on: onPhoto },
   ];
@@ -361,34 +434,78 @@ function MethodPicker({ onBack, onManual, onScan, onPhoto }: { onBack: () => voi
 
 function ManualEntry({ products, onBack, onNext }: { products: Prod[]; onBack: () => void; onNext: (p: Prod) => void }) {
   const [val, setVal] = useState("");
-  const match = val.length === 4 ? products.find((p) => p.last4 === val) : undefined;
+  // Stare produkty ze sklepu maja ID 2- i 3-cyfrowe, nowsze 4-cyfrowe.
+  const gotowe = wygladaJakId(val);
+  const trafienia = gotowe ? znajdzWszystkiePoId(products, val) : [];
+  const [wybrany, setWybrany] = useState<Prod | null>(null);
+  const match = trafienia.length === 1 ? trafienia[0] : wybrany;
+
+  const zmien = (v: string) => {
+    setVal(v.replace(/\D/g, "").slice(0, MAX_CYFR_ID));
+    setWybrany(null);
+  };
+
   return (
     <div className="flex flex-1 flex-col">
       <TopBar title="Ręczne ID" onBack={onBack} />
       <div className="px-5 pt-6">
-        <label className="text-sm text-ink-muted">4 ostatnie cyfry ID produktu</label>
+        <label className="text-sm text-ink-muted">Ostatnie cyfry ID produktu ({MIN_CYFR_ID}–{MAX_CYFR_ID})</label>
         <input
           value={val}
-          onChange={(e) => setVal(e.target.value.replace(/\D/g, "").slice(0, 4))}
+          onChange={(e) => zmien(e.target.value)}
           inputMode="numeric"
           placeholder="0000"
           className="mt-2 w-full rounded-2xl border border-line bg-surface-1 px-5 py-4 text-center text-3xl tracking-[0.5em] outline-none focus:border-accent"
         />
-        {val.length === 4 &&
-          (match ? (
-            <div className="mt-6 flex items-center gap-3 rounded-2xl border border-accent/40 bg-accent-soft p-4">
-              <div className="grid h-12 w-12 place-items-center rounded-xl text-lg font-bold text-white/80" style={{ background: match.color }}>
-                {match.name.slice(0, 1)}
-              </div>
-              <div className="min-w-0">
-                <p className="truncate font-medium">{match.name}</p>
-                <p className="text-xs text-ink-muted">Kat: {match.category}</p>
-              </div>
-              <IconCheck className="ml-auto h-6 w-6 text-ok" />
+        {!gotowe && val.length > 0 && (
+          <p className="mt-3 text-center text-sm text-ink-faint">Wpisz co najmniej {MIN_CYFR_ID} cyfry.</p>
+        )}
+
+        {gotowe && trafienia.length === 0 && (
+          <p className="mt-6 text-center text-sm text-bad">Nie znaleziono produktu o tym ID.</p>
+        )}
+
+        {/* Krotkie ID nie musi byc unikalne — nie zgadujemy za pracownice. */}
+        {trafienia.length > 1 && (
+          <div className="mt-5">
+            <p className="mb-2 text-sm text-ink-muted">
+              {trafienia.length} produkty mają tę końcówkę ID — wybierz właściwy:
+            </p>
+            <div className="space-y-2">
+              {trafienia.map((p) => (
+                <button
+                  key={p.id ?? p.name}
+                  onClick={() => setWybrany(p)}
+                  className={`flex w-full items-center gap-3 rounded-2xl border p-3 text-left transition ${
+                    wybrany === p ? "border-accent bg-accent-soft" : "border-line bg-surface-1"
+                  }`}
+                >
+                  <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl text-base font-bold text-white/80" style={{ background: p.color }}>
+                    {p.name.slice(0, 1)}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">{p.name}</p>
+                    <p className="text-xs text-ink-muted">Kat: {p.category}</p>
+                  </div>
+                  {wybrany === p && <IconCheck className="ml-auto h-5 w-5 text-ok" />}
+                </button>
+              ))}
             </div>
-          ) : (
-            <p className="mt-6 text-center text-sm text-bad">Nie znaleziono produktu o tym ID.</p>
-          ))}
+          </div>
+        )}
+
+        {trafienia.length === 1 && match && (
+          <div className="mt-6 flex items-center gap-3 rounded-2xl border border-accent/40 bg-accent-soft p-4">
+            <div className="grid h-12 w-12 place-items-center rounded-xl text-lg font-bold text-white/80" style={{ background: match.color }}>
+              {match.name.slice(0, 1)}
+            </div>
+            <div className="min-w-0">
+              <p className="truncate font-medium">{match.name}</p>
+              <p className="text-xs text-ink-muted">Kat: {match.category}</p>
+            </div>
+            <IconCheck className="ml-auto h-6 w-6 text-ok" />
+          </div>
+        )}
       </div>
       <div className="mt-auto px-4 pt-5" style={safeBottom}>
         <button
@@ -479,49 +596,176 @@ function ScanEntry({
   );
 }
 
-function PhotoEntry({ products, onBack, onRecognized }: { products: Prod[]; onBack: () => void; onRecognized: (p: Prod, score: number, dataUrl: string) => void }) {
+/**
+ * Rozpoznawanie produktu ze zdjecia.
+ *
+ * AI tylko PROPONUJE — wybor zawsze nalezy do pracownicy. Wczesniej ekran
+ * podstawial pierwszy produkt z katalogu z etykieta „AI 90 %", przez co do
+ * ewidencji trafialy czynnosci, ktorych nikt nie wykonal (uwaga klientki
+ * z 14.08.2026). Teraz: albo lista kandydatow do wskazania, albo uczciwe
+ * „nie rozpoznano" z przejsciem na wpis ID lub zgloszenie do admina.
+ */
+function PhotoEntry({
+  products,
+  onBack,
+  onRecognized,
+  onManual,
+}: {
+  products: Prod[];
+  onBack: () => void;
+  onRecognized: (p: Prod, score: number, dataUrl: string) => void;
+  onManual: () => void;
+}) {
   const [busy, setBusy] = useState(false);
+  const [zdjecie, setZdjecie] = useState<string | null>(null);
+  const [kandydaci, setKandydaci] = useState<AiKandydat[] | null>(null);
+  const [powod, setPowod] = useState<string | null>(null);
+  const [zgloszenie, setZgloszenie] = useState<"idle" | "wysylanie" | "wyslane" | "blad">("idle");
 
   const handleFile = async (file: File) => {
     const url = URL.createObjectURL(file);
     setBusy(true);
+    setZdjecie(url);
+    setKandydaci(null);
+    setPowod(null);
+    setZgloszenie("idle");
     try {
       const form = new FormData();
       form.append("photo", file);
-      const res = await apiUpload<{ product?: { id: string; name: string; category: string }; score?: number }>(
-        "/worker/entries/recognize",
-        form,
-      );
-      const match = res?.product;
-      if (match) {
-        const p = products.find((x) => x.id === match.id) ?? { ...match, last4: "", color: colorFor(match.name) };
-        onRecognized(p, res.score ?? 0.9, url);
-        return;
-      }
+      const res = await apiUpload<AiOdpowiedz>("/worker/entries/recognize", form);
+      setKandydaci(res.candidates ?? []);
+      setPowod(res.reason ?? null);
     } catch {
-      /* fallback poniżej */
+      setKandydaci([]);
+      setPowod("Brak połączenia z serwerem — spróbuj ponownie albo wpisz ID.");
+    } finally {
+      setBusy(false);
     }
-    if (products[0]) onRecognized(products[0], 0.9, url);
-    setBusy(false);
   };
+
+  const wybierz = (k: AiKandydat) => {
+    const zKatalogu = products.find((p) => p.id === k.id);
+    const p: Prod = zKatalogu ?? {
+      id: k.id,
+      name: k.name,
+      category: k.category,
+      last4: "",
+      color: colorFor(k.name),
+    };
+    onRecognized(p, k.score, zdjecie ?? "");
+  };
+
+  const zglos = async () => {
+    setZgloszenie("wysylanie");
+    try {
+      await apiPost("/worker/tasks", {
+        label: "Zdjęcie produktu — nierozpoznany, do wyceny przez administratora",
+      });
+      setZgloszenie("wyslane");
+    } catch {
+      setZgloszenie("blad");
+    }
+  };
+
+  const maWynik = kandydaci !== null;
+  const nicNieZnaleziono = maWynik && kandydaci!.length === 0;
 
   return (
     <div className="flex flex-1 flex-col">
       <TopBar title="Zdjęcie produktu (AI)" onBack={onBack} />
       <div className="px-5 pt-6">
-        {!busy ? (
+        {busy ? (
+          <div className="flex aspect-square flex-col items-center justify-center gap-4 rounded-2xl border border-line bg-surface-1">
+            <div className="h-10 w-10 animate-spin rounded-full border-2 border-accent border-t-transparent" />
+            <p className="text-sm text-ink-muted">Rozpoznaję produkt…</p>
+          </div>
+        ) : maWynik ? (
+          <>
+            <div className="aspect-square overflow-hidden rounded-2xl border border-line">
+              <img src={zdjecie ?? ""} alt="Zdjęcie produktu" className="h-full w-full object-cover" />
+            </div>
+
+            {nicNieZnaleziono ? (
+              <div className="mt-3 rounded-2xl border border-bad/30 bg-bad/10 p-3 text-center">
+                <p className="text-sm font-medium text-bad">Nie rozpoznano produktu</p>
+                <p className="mt-1 text-xs text-ink-faint">
+                  {powod ?? "Nic nie zostało zapisane."} Wpisz ID produktu albo zgłoś zdjęcie do sprawdzenia.
+                </p>
+              </div>
+            ) : (
+              <div className="mt-4">
+                <p className="mb-2 text-sm text-ink-muted">
+                  {kandydaci!.length === 1 ? "Czy to ten produkt?" : "Który to produkt?"}
+                </p>
+                <div className="space-y-2">
+                  {kandydaci!.map((k) => (
+                    <button
+                      key={k.id}
+                      onClick={() => wybierz(k)}
+                      className="flex w-full items-center gap-3 rounded-2xl border border-line bg-surface-1 p-3 text-left active:scale-[0.99]"
+                    >
+                      {k.photoUrl ? (
+                        <img src={k.photoUrl} alt="" className="h-12 w-12 shrink-0 rounded-xl object-cover" />
+                      ) : (
+                        <div className="grid h-12 w-12 shrink-0 place-items-center rounded-xl text-base font-bold text-white/80" style={{ background: colorFor(k.name) }}>
+                          {k.name.slice(0, 1)}
+                        </div>
+                      )}
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium">{k.name}</p>
+                        <p className="text-xs text-ink-muted">{k.category}</p>
+                      </div>
+                      <span className="ml-auto shrink-0 rounded-lg bg-surface-3 px-2 py-1 text-xs tabular-nums text-ink-muted">
+                        {Math.round(k.score * 100)}%
+                      </span>
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-3 text-center text-xs text-ink-faint">
+                  Żaden nie pasuje? Wpisz ID ręcznie — nic nie zostało jeszcze zapisane.
+                </p>
+              </div>
+            )}
+
+            {zgloszenie === "wyslane" && <p className="mt-3 text-center text-sm text-ok">Zgłoszenie trafiło do administratora.</p>}
+            {zgloszenie === "blad" && <p className="mt-3 text-center text-sm text-bad">Nie udało się wysłać zgłoszenia.</p>}
+          </>
+        ) : (
           <label className="flex aspect-square cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-line bg-surface-1 text-ink-muted">
             <IconCamera className="h-12 w-12 text-accent-300" />
             <span className="text-sm">Zrób lub wybierz zdjęcie</span>
             <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])} />
           </label>
-        ) : (
-          <div className="flex aspect-square flex-col items-center justify-center gap-4 rounded-2xl border border-line bg-surface-1">
-            <div className="h-10 w-10 animate-spin rounded-full border-2 border-accent border-t-transparent" />
-            <p className="text-sm text-ink-muted">Rozpoznaję produkt…</p>
-          </div>
         )}
       </div>
+
+      {maWynik && !busy && (
+        <div className="mt-auto space-y-2 px-4 pt-5" style={safeBottom}>
+          <button
+            onClick={onManual}
+            className={`w-full rounded-2xl py-4 text-base font-semibold active:scale-[0.98] ${
+              nicNieZnaleziono ? "bg-accent text-white" : "border border-line bg-surface-1"
+            }`}
+          >
+            Wpisz ID ręcznie
+          </button>
+          {nicNieZnaleziono && (
+            <button
+              onClick={zglos}
+              disabled={zgloszenie === "wysylanie" || zgloszenie === "wyslane"}
+              className="w-full rounded-2xl border border-line bg-surface-1 py-3 text-sm font-medium disabled:opacity-50"
+            >
+              {zgloszenie === "wyslane" ? "Zgłoszono" : "Zgłoś do sprawdzenia"}
+            </button>
+          )}
+          <button
+            onClick={() => { setKandydaci(null); setZdjecie(null); }}
+            className="w-full py-2 text-sm text-ink-faint"
+          >
+            Zrób zdjęcie jeszcze raz
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -656,6 +900,83 @@ function TaskEntry({ onBack, onSent }: { onBack: () => void; onSent: () => void 
 }
 
 // ─── Licznik czasu pracy ──────────────────────────────────────────────
+/**
+ * Pracownica nie kliknela „Zakoncz" i minal dzien. Nie zgadujemy godziny za nia
+ * (ktos zostaje dluzej, zeby odrobic godziny) — pytamy przy pierwszym wejsciu.
+ * Jesli odlozy pytanie i po prostu zacznie nowa prace, serwer domyka zalegla
+ * zmiane po etacie i oznacza ja jako szacunek dla admina.
+ */
+function ZapomnianaZmiana({
+  dane,
+  onZapisz,
+  onOdloz,
+}: {
+  dane: Zapomniana;
+  onZapisz: (endedAt: Date) => Promise<void>;
+  onOdloz: () => void;
+}) {
+  const hhmm = (d: Date) => `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  const [czas, setCzas] = useState(hhmm(dane.suggestedEnd));
+  const [busy, setBusy] = useState(false);
+  const [blad, setBlad] = useState<string | null>(null);
+
+  const zapisz = async () => {
+    const [g, m] = czas.split(":").map(Number);
+    const end = new Date(dane.startedAt);
+    end.setHours(g || 0, m || 0, 0, 0);
+    if (end <= dane.startedAt) {
+      setBlad("Godzina zakończenia musi być po godzinie rozpoczęcia pracy.");
+      return;
+    }
+    setBusy(true);
+    setBlad(null);
+    try {
+      await onZapisz(end);
+    } catch {
+      setBlad("Nie udało się zapisać — spróbuj ponownie.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const godziny = Math.max(0, (new Date(`1970-01-01T${czas}:00`).getTime() -
+    new Date(`1970-01-01T${hhmm(dane.startedAt)}:00`).getTime()) / 3600000);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end bg-black/60 sm:items-center sm:justify-center">
+      <div className="w-full rounded-t-3xl bg-surface-1 p-5 sm:max-w-md sm:rounded-3xl" style={safeBottom}>
+        <p className="text-lg font-semibold">Nie zakończyłaś pracy</p>
+        <p className="mt-1 text-sm text-ink-muted">
+          {dane.startedAt.toLocaleDateString("pl-PL", { weekday: "long", day: "numeric", month: "long" })} zaczęłaś
+          o {hhmm(dane.startedAt)}, ale nie kliknęłaś „Zakończ". O której skończyłaś?
+        </p>
+
+        <input
+          type="time"
+          value={czas}
+          onChange={(e) => setCzas(e.target.value)}
+          className="mt-4 w-full rounded-2xl border border-line bg-surface-2 px-5 py-4 text-center text-3xl tabular-nums outline-none focus:border-accent"
+        />
+        <p className="mt-2 text-center text-sm text-ink-faint">
+          to {godziny.toFixed(1).replace(".", ",")} godz. pracy
+        </p>
+        {blad && <p className="mt-2 text-center text-sm text-bad">{blad}</p>}
+
+        <button
+          onClick={zapisz}
+          disabled={busy}
+          className="mt-4 w-full rounded-2xl bg-accent py-4 text-base font-semibold text-white active:scale-[0.98] disabled:opacity-50"
+        >
+          {busy ? "Zapisywanie…" : "Zapisz godzinę"}
+        </button>
+        <button onClick={onOdloz} className="mt-2 w-full py-3 text-sm text-ink-faint">
+          Zapytaj później
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function WorkTimer({ start, onStart, onStop }: { start: Date | null; onStart: () => void; onStop: () => void }) {
   const [, setTick] = useState(0);
   useEffect(() => {
@@ -736,8 +1057,9 @@ type WDay = "WORK" | "VACATION" | "SICK_LEAVE" | null;
 // Praca jest oznaczana automatycznie („Start pracy"). Pracownica sama ustawia
 // urlop/chorobowe: tap cyklicznie Urlop → Chorobowe → brak.
 const WORKER_CYCLE: Record<string, WDay> = { "": "VACATION", WORK: "VACATION", VACATION: "SICK_LEAVE", SICK_LEAVE: null };
+// Praca na zielono (uwaga klientki z 14.08.2026) — bordo zostaje kolorem akcji, nie stanu.
 const WORKER_STYLE: Record<string, string> = {
-  WORK: "bg-accent text-white",
+  WORK: "bg-ok font-medium text-bg",
   VACATION: "bg-warn/25 text-warn",
   SICK_LEAVE: "bg-bad/25 text-bad",
 };
@@ -800,7 +1122,7 @@ function WorkerCalendar({ onBack }: { onBack: () => void }) {
           </div>
           <div className="mt-5 flex flex-wrap gap-4 text-xs text-ink-muted">
             <span className="flex items-center gap-2">
-              <span className="h-3 w-3 rounded bg-accent" /> Praca (automatycznie)
+              <span className="h-3 w-3 rounded bg-ok" /> Praca (automatycznie)
             </span>
             <span className="flex items-center gap-2">
               <span className="h-3 w-3 rounded bg-warn" /> Urlop

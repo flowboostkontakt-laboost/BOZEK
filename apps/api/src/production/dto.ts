@@ -27,3 +27,16 @@ export class WorkerAttendanceDto {
   @IsEnum(AttendanceType)
   type!: AttendanceType;
 }
+
+/**
+ * Domknięcie zmiany, której pracownica nie zakończyła poprzedniego dnia.
+ * Godzinę podaje sama — nie zgadujemy jej za nią, bo z tego liczą się nadgodziny.
+ */
+export class FinishForgottenShiftDto {
+  @IsString()
+  sessionId!: string;
+
+  /** Moment zakończenia (ISO). Musi być tego samego dnia co start i po starcie. */
+  @IsDateString()
+  endedAt!: string;
+}

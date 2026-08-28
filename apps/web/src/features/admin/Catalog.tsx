@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { PageShell } from "./PageShell";
 import { NormSlider } from "./NormSlider";
+import { AiPhotos } from "./AiPhotos";
 import { IconArrowLeft, IconPackage, IconRefresh } from "../../components/icons";
 import { apiGet, apiPatch, apiPost } from "../../lib/api";
 
@@ -135,6 +136,8 @@ export function Catalog() {
         )}
         {error && <div className="rounded-xl border border-bad/30 bg-bad/10 p-3 text-sm text-bad">{error}</div>}
 
+        <AiPhotos />
+
         <div className="flex flex-wrap items-center gap-3">
           <nav className="flex min-w-0 flex-1 flex-wrap items-center gap-1 text-sm">
             <button
@@ -172,7 +175,7 @@ export function Catalog() {
             <input
               value={szukaj}
               onChange={(e) => setSzukaj(e.target.value)}
-              placeholder="Szukaj produktu (nazwa, 4 cyfry, kod)"
+              placeholder="Szukaj produktu (nazwa, cyfry ID, kod)"
               className="inp w-64"
             />
             <button type="submit" className="rounded-lg border border-line px-3 py-2 text-sm hover:bg-surface-2">

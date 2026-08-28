@@ -4,7 +4,9 @@ import {
   efektywnyPctKategorii,
   efektywnyPctProduktu,
   sciezkaKategorii,
+  wygladaJakId,
   znajdzPoKodzie,
+  znajdzWszystkiePoId,
 } from "./katalog.js";
 
 describe("znajdzPoKodzie — skan kodu i ręczne ID", () => {
@@ -136,5 +138,39 @@ describe("sciezkaKategorii — okruszki nawigacji", () => {
   it("dla korzenia zwraca sam korzeń, dla braku — pustą listę", () => {
     expect(sciezkaKategorii("a", drzewo).map((w) => w.id)).toEqual(["a"]);
     expect(sciezkaKategorii(null, drzewo)).toEqual([]);
+  });
+});
+
+describe("krótkie ID (2–3 cyfry) — stare produkty ze sklepu", () => {
+  const katalog = [
+    { name: "Opaska stara", last4: "45", barcode: null },
+    { name: "Turban stary", last4: "307", barcode: null },
+    { name: "Chusta nowa", last4: "3307", barcode: null },
+    { name: "Bliźniak ID 45", last4: "45", barcode: null },
+  ];
+
+  it("trafia po 2 cyfrach, gdy ID jest jednoznaczne", () => {
+    expect(znajdzPoKodzie([katalog[0], katalog[1]], "45")?.name).toBe("Opaska stara");
+  });
+
+  it("trafia po 3 cyfrach i nie myli ich z 4-cyfrowym ID", () => {
+    expect(znajdzPoKodzie(katalog, "307")?.name).toBe("Turban stary");
+    expect(znajdzPoKodzie(katalog, "3307")?.name).toBe("Chusta nowa");
+  });
+
+  it("przy dwóch produktach o tej samej końcówce NIE zgaduje", () => {
+    expect(znajdzPoKodzie(katalog, "45")).toBeUndefined();
+    expect(znajdzWszystkiePoId(katalog, "45").map((p) => p.name)).toEqual(["Opaska stara", "Bliźniak ID 45"]);
+  });
+
+  it("jedna cyfra to za mało (za dużo trafień)", () => {
+    expect(wygladaJakId("4")).toBe(false);
+    expect(znajdzWszystkiePoId(katalog, "4")).toEqual([]);
+  });
+
+  it("przyjmuje 2, 3 i 4 cyfry, odrzuca litery i dłuższe ciągi", () => {
+    expect([2, 3, 4].map((n) => wygladaJakId("1".repeat(n)))).toEqual([true, true, true]);
+    expect(wygladaJakId("12345")).toBe(false);
+    expect(wygladaJakId("bk45")).toBe(false);
   });
 });

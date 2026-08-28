@@ -1,5 +1,5 @@
 // System Ewidencji Produkcji i Norm Pracy — model danych (Wariant A)
-// PostgreSQL + pgvector (embeddingi zdjęć produktów dla modułu AI).
+// PostgreSQL (embeddingi zdjęć produktów trzymamy jako Float[] — patrz model Product).
 
 generator client {
   provider = "prisma-client-js"
@@ -56,6 +56,9 @@ model WorkSession {
   employeeId String
   startedAt  DateTime  @default(now())
   endedAt    DateTime?
+  // Zmiana zamknięta automatycznie (pracownica nie kliknęła „Zakończ" i minął
+  // dzień) — czas jest wtedy szacunkiem po etacie, nie pomiarem. Admin widzi flagę.
+  autoClosed Boolean   @default(false)
 
   @@index([employeeId, startedAt])
 }
@@ -97,7 +100,11 @@ model Product {
   categoryId  String
   // Nadpisanie przelicznika normy dla pojedynczego produktu (override).
   normPctOverride Int?
-  // (Moduł AI: embeddingi zdjęć wymagają rozszerzenia pgvector — włączane osobno.)
+  // Wektor zdjęcia katalogowego (moduł AI). Zwykła tablica float — przy ~1300
+  // produktach porównanie liczy się w pamięci w kilkanaście milisekund, więc
+  // pgvector nie jest potrzebny (i nie blokuje nas wybór hostingu bazy).
+  embedding   Float[]
+  embeddedAt  DateTime?
   entries     ProductionEntry[]
   createdAt   DateTime          @default(now())
   updatedAt   DateTime          @updatedAt

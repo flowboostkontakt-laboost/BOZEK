@@ -1,4 +1,4 @@
-import { Controller, Post, UploadedFile, UseInterceptors } from "@nestjs/common";
+import { Body, Controller, Get, HttpCode, Post, UploadedFile, UseInterceptors } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { Role } from "@prisma/client";
 import { Roles } from "../auth/decorators/roles.decorator";
@@ -19,14 +19,28 @@ export class AiController {
   @Post("worker/entries/recognize")
   @UseInterceptors(FileInterceptor("photo"))
   async recognize(@UploadedFile() file?: UploadedImage) {
-    if (!file) return { matched: false, score: 0, product: null, suggestReview: true };
-    return this.ai.recognize(file.buffer);
+    if (!file) {
+      return { matched: false, score: 0, product: null, candidates: [], suggestReview: true, reason: "Brak zdjęcia." };
+    }
+    return this.ai.recognize(file.buffer, file.mimetype);
   }
 
-  /** Przeliczenie embeddingów katalogu (uruchamiane po synchronizacji). */
+  /** Stan modułu: dostawca, próg, ile zdjęć katalogu jest już przeliczonych. */
+  @Roles(Role.ADMIN)
+  @Get("admin/ai/status")
+  status() {
+    return this.ai.status();
+  }
+
+  /**
+   * Przeliczenie zdjęć katalogu na wektory — partiami, bo każde zdjęcie to
+   * płatne wywołanie API. Wielokrotne uruchomienie dokańcza resztę.
+   */
   @Roles(Role.ADMIN)
   @Post("admin/ai/reindex")
-  reindex() {
-    return this.ai.reindex();
+  @HttpCode(200)
+  reindex(@Body() body?: { limit?: number }) {
+    const limit = Math.min(Math.max(Number(body?.limit) || 200, 1), 500);
+    return this.ai.reindex(limit);
   }
 }

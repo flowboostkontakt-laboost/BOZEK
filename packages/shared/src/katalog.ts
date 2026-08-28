@@ -9,7 +9,8 @@
 
 /** Minimalny kształt produktu potrzebny do dopasowania. */
 export interface DopasowywalnyProdukt {
-  /** 4 ostatnie cyfry ID produktu z PrestaShop (ścieżka „Ręczne ID"). */
+  /** Końcówka ID produktu z PrestaShop — do 4 cyfr (ścieżka „Ręczne ID").
+   *  Starsze produkty mają ID 2- i 3-cyfrowe, więc pole bywa krótsze. */
   last4?: string | null;
   /** Kod kreskowy z PrestaShop: ean13, a w razie braku reference. */
   barcode?: string | null;
@@ -17,11 +18,42 @@ export interface DopasowywalnyProdukt {
 
 const norm = (s: string): string => s.trim().toLowerCase();
 
+/** Najkrótsze ID, jakie przyjmujemy z klawiatury — poniżej trafień byłoby za dużo. */
+export const MIN_CYFR_ID = 2;
+export const MAX_CYFR_ID = 4;
+
+const RE_ID = /^\d{2,4}$/; // zakres musi odpowiadać MIN_CYFR_ID / MAX_CYFR_ID
+
+/** Czy ciąg wygląda jak ręcznie wpisane ID produktu (2–4 cyfry)? */
+export function wygladaJakId(kod: string): boolean {
+  return RE_ID.test((kod ?? "").trim());
+}
+
+/**
+ * Wszystkie produkty o podanej końcówce ID (2–4 cyfry). Porównujemy DOKŁADNIE
+ * z zapisaną końcówką, nie „czy się kończy na" — inaczej wpisanie 15 trafiałoby
+ * w każdy produkt z ID kończącym się na 15.
+ *
+ * Krótkie ID (2–3 cyfry) mają starsze produkty ze sklepu; dla nich `last4` jest
+ * po prostu całym ID. Zwracamy listę, bo końcówka nie musi być unikalna —
+ * o wyborze decyduje pracownica, a nie losowanie pierwszego trafienia.
+ */
+export function znajdzWszystkiePoId<T extends DopasowywalnyProdukt>(
+  produkty: T[],
+  kod: string,
+): T[] {
+  const code = (kod ?? "").trim();
+  if (!wygladaJakId(code)) return [];
+  return produkty.filter((p) => p.last4 === code);
+}
+
 /**
  * Szuka produktu pasującego do odczytanego kodu.
- * Kolejność: pełny kod kreskowy (dokładne dopasowanie) → 4-cyfrowa końcówka ID.
+ * Kolejność: pełny kod kreskowy (dokładne dopasowanie) → końcówka ID (2–4 cyfry).
  * Celowo NIE porównujemy „końcówki zeskanowanego kodu" z last4 — EAN kończący się
  * przypadkiem tymi samymi cyframi trafiłby w niewłaściwy produkt.
+ * Gdy końcówka ID pasuje do kilku produktów, nie zgadujemy — zwracamy undefined
+ * (UI pyta pracownicę, patrz `znajdzWszystkiePoId`).
  */
 export function znajdzPoKodzie<T extends DopasowywalnyProdukt>(
   produkty: T[],
@@ -33,9 +65,8 @@ export function znajdzPoKodzie<T extends DopasowywalnyProdukt>(
   const poKodzie = produkty.find((p) => p.barcode && norm(p.barcode) === norm(code));
   if (poKodzie) return poKodzie;
 
-  if (/^\d{4}$/.test(code)) return produkty.find((p) => p.last4 === code);
-
-  return undefined;
+  const poId = znajdzWszystkiePoId(produkty, code);
+  return poId.length === 1 ? poId[0] : undefined;
 }
 
 /**

@@ -10,7 +10,7 @@
  *   • Nieobecność (urlop/chorobowe) nie obniża wyniku miesięcznego — zmniejsza mianownik.
  */
 
-import type { AttendanceDay, BonusTier } from "./types.js";
+import type { BonusTier } from "./types.js";
 
 export const FULL_TIME_HOURS = 8;
 
@@ -53,31 +53,6 @@ export function procentNormy(wykonanoZl: number, normaZl: number): number {
 }
 
 /**
- * Norma za dowolny okres = suma norm efektywnych TYLKO z dni pracujących.
- * Dni urlopu/chorobowego są pomijane → nie zaniżają wyniku okresu.
- * Używane dla miesiąca i dla ruchomego okna 7 dni.
- */
-export function normaZOkresu(
-  normaBazowa: number,
-  dni: AttendanceDay[],
-  etatBazowy: number = FULL_TIME_HOURS,
-): number {
-  const suma = dni
-    .filter((d) => d.type === "WORK")
-    .reduce((acc, d) => acc + normaEfektywnaDnia(normaBazowa, d.hours, etatBazowy), 0);
-  return round2(suma);
-}
-
-/** Norma miesięczna — okres = dni danego miesiąca (patrz normaZOkresu). */
-export function normaMiesieczna(
-  normaBazowa: number,
-  dni: AttendanceDay[],
-  etatBazowy: number = FULL_TIME_HOURS,
-): number {
-  return normaZOkresu(normaBazowa, dni, etatBazowy);
-}
-
-/**
  * Premia za miesiąc na podstawie progów. Zwraca kwotę najwyższego osiągniętego progu.
  * Konfiguracja i podgląd kwot — wyłącznie po stronie admina (spec 4.3).
  */
@@ -111,4 +86,27 @@ export function kolorPostepu(pct: number): "danger" | "warning" | "ok" | "succes
   if (pct < 85) return "warning";
   if (pct < 100) return "ok";
   return "success";
+}
+
+/** Jeden dzień okresu: norma efektywna tego dnia i to, co w nim wykonano (zł). */
+export interface DzienOkresu {
+  norma: number;
+  wykonano: number;
+}
+
+/**
+ * Procent realizacji normy za okres (tydzień, miesiąc) = ŚREDNIA z dziennych
+ * procentów, czyli suma procentów wszystkich dni podzielona przez liczbę dni
+ * przepracowanych (ustalenie z klientką z 14.08.2026).
+ *
+ * Różni się od „suma wykonanego / suma norm": tam dzień 8-godzinny ważył więcej
+ * niż 6-godzinny. Tutaj każdy przepracowany dzień waży tyle samo.
+ * Dni bez normy (urlop, chorobowe, dzień nieprzepracowany) nie wchodzą do
+ * średniej — nie zaniżają wyniku okresu.
+ */
+export function sredniProcentDni(dni: DzienOkresu[]): number {
+  const przepracowane = dni.filter((d) => d.norma > 0);
+  if (przepracowane.length === 0) return 0;
+  const suma = przepracowane.reduce((acc, d) => acc + (d.wykonano / d.norma) * 100, 0);
+  return Math.round(suma / przepracowane.length);
 }

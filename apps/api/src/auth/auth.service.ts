@@ -4,7 +4,6 @@ import { ConfigService } from "@nestjs/config";
 import { Role } from "@prisma/client";
 import * as bcrypt from "bcryptjs";
 import { createHash, randomUUID } from "crypto";
-import { sekundyDoWylogowania, limitSesjiSekundy } from "@sep/shared";
 import { PrismaService } from "../prisma/prisma.service";
 
 interface Tokens {
@@ -101,21 +100,17 @@ export class AuthService {
   }
 
   /**
-   * Sekundy do sztywnego wylogowania o godzinie AUTO_LOGOUT_HOUR (domyślnie 18:00).
-   * Dotyczy tylko roli WORKER. null = brak limitu (ADMIN).
+   * Czas życia tokenu dostępowego. Bez skracania „do 18:00" — na życzenie
+   * klientki (14.08.2026) twarde wylogowanie o tej godzinie zostało zdjęte:
+   * wyrzucało pracownice w środku dodawania produktu, a przy nadgodzinach
+   * (odrabianie godzin po 16:00) blokowało pracę. Sesja jest odnawiana cicho
+   * przez /auth/refresh, wylogowanie zostaje ręczne (menu w apce).
    */
-  private secondsUntilCutoff(role: Role): number | null {
-    if (role !== Role.WORKER) return null;
-    const hour = Number(this.config.get<string>("AUTO_LOGOUT_HOUR") ?? "18");
-    return sekundyDoWylogowania(hour, new Date());
+  private accessTtlSeconds(_role: Role): number {
+    return 30 * 60;
   }
 
-  private accessTtlSeconds(role: Role): number {
-    return limitSesjiSekundy(30 * 60, this.secondsUntilCutoff(role)); // base 30 min
-  }
-
-  private refreshTtlSeconds(role: Role): number {
-    // Admin: 7 dni. Pracownica nie odnowi sesji po 18:00.
-    return limitSesjiSekundy(7 * 24 * 3600, this.secondsUntilCutoff(role));
+  private refreshTtlSeconds(_role: Role): number {
+    return 7 * 24 * 3600;
   }
 }

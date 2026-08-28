@@ -25,6 +25,8 @@ export interface PsProduct {
   categoryIds: string[];
   barcode?: string;
   active: boolean;
+  /** Publiczny adres zdjęcia głównego (sklep serwuje je bez klucza API). */
+  photoUrl?: string;
 }
 
 /** PrestaShop Webservice client. Supports JSON and XML responses. */
@@ -86,9 +88,22 @@ export class PrestashopClient {
       categoryIds: readProductCategories(getField(p, "associations")),
       barcode: text(getField(p, "ean13")) || text(getField(p, "reference")) || undefined,
       active: truthy(getField(p, "active")),
+      photoUrl: this.adresZdjecia(text(getField(p, "id_default_image")), lang(getField(p, "link_rewrite"))),
     }));
   }
+  /**
+   * Adres zdjęcia w sklepie: https://sklep/{idObrazka}-large_default/{slug}.jpg
+   * To ten sam URL, którego używa storefront — publiczny, bez klucza API,
+   * więc indeksowanie zdjęć nie obciąża webservice'u.
+   */
+  private adresZdjecia(idObrazka: string, slug: string): string | undefined {
+    if (!idObrazka) return undefined;
+    const sklep = this.base().replace(/\/api$/, "");
+    if (!sklep) return undefined;
+    return `${sklep}/${idObrazka}-large_default/${slug || "produkt"}.jpg`;
+  }
 }
+
 
 function numberOrUndefined(v: unknown): number | undefined {
   const t = text(v);

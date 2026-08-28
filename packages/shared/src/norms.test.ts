@@ -3,13 +3,12 @@ import {
   normaEfektywnaDnia,
   wartoscPozycji,
   procentNormy,
-  normaMiesieczna,
-  normaZOkresu,
   premiaZaMiesiac,
   obowiazujaceProgi,
   kolorPostepu,
+  sredniProcentDni,
 } from "./norms.js";
-import type { AttendanceDay, BonusTier } from "./types.js";
+import type { BonusTier } from "./types.js";
 
 describe("normaEfektywnaDnia — przeliczanie proporcjonalne do etatu", () => {
   it("pełny etat 8h zwraca normę bazową", () => {
@@ -41,48 +40,6 @@ describe("procentNormy — wartości z mockupu", () => {
   });
   it("zero normy nie wybucha", () => {
     expect(procentNormy(500, 0)).toBe(0);
-  });
-});
-
-describe("normaMiesieczna — nieobecności nie zaniżają wyniku", () => {
-  const dni: AttendanceDay[] = [
-    { date: "2026-05-04", type: "WORK", hours: 8 },
-    { date: "2026-05-05", type: "WORK", hours: 6 },
-    { date: "2026-05-06", type: "VACATION", hours: 0 },
-    { date: "2026-05-07", type: "SICK_LEAVE", hours: 0 },
-  ];
-  it("liczy tylko dni pracujące (8h + 6h)", () => {
-    // 1750*1 + 1750*0.75 = 1750 + 1312.5 = 3062.5
-    expect(normaMiesieczna(1750, dni)).toBe(3062.5);
-  });
-});
-
-describe("normaZOkresu — ruchome okno 7 dni (statystyki tygodniowe)", () => {
-  it("sumuje wyłącznie dni pracujące z okna, pomijając urlop i chorobowe", () => {
-    const okno: AttendanceDay[] = [
-      { date: "2026-07-13", type: "WORK", hours: 8 },
-      { date: "2026-07-14", type: "WORK", hours: 8 },
-      { date: "2026-07-15", type: "VACATION", hours: 0 },
-      { date: "2026-07-16", type: "SICK_LEAVE", hours: 0 },
-      { date: "2026-07-17", type: "WORK", hours: 4 },
-    ];
-    // 1750 + 1750 + 1750*0.5 = 4375
-    expect(normaZOkresu(1750, okno)).toBe(4375);
-  });
-
-  it("okno bez dni pracujących daje normę 0 (a procent nie wybucha)", () => {
-    const urlop: AttendanceDay[] = [{ date: "2026-07-13", type: "VACATION", hours: 0 }];
-    expect(normaZOkresu(1750, urlop)).toBe(0);
-    expect(procentNormy(0, normaZOkresu(1750, urlop))).toBe(0);
-  });
-
-  it("jest spójna z normaMiesieczna dla tego samego zestawu dni", () => {
-    const te_same: AttendanceDay[] = [
-      { date: "2026-05-04", type: "WORK", hours: 8 },
-      { date: "2026-05-05", type: "WORK", hours: 6 },
-      { date: "2026-05-06", type: "VACATION", hours: 0 },
-    ];
-    expect(normaZOkresu(2000, te_same)).toBe(normaMiesieczna(2000, te_same));
   });
 });
 
@@ -138,5 +95,49 @@ describe("kolorPostepu — gamifikacja od czerwonego do zielonego", () => {
     expect(kolorPostepu(70)).toBe("warning");
     expect(kolorPostepu(92)).toBe("ok");
     expect(kolorPostepu(107)).toBe("success");
+  });
+});
+
+describe("sredniProcentDni — % okresu jako średnia z dni (ustalenie 14.08.2026)", () => {
+  it("liczy średnią z dziennych procentów, a nie stosunek sum", () => {
+    // 100 % i 50 % → 75 %, mimo że drugi dzień ma dwa razy mniejszą normę.
+    expect(sredniProcentDni([
+      { norma: 1750, wykonano: 1750 },
+      { norma: 875, wykonano: 437.5 },
+    ])).toBe(75);
+  });
+
+  it("dzień krótszy waży tyle samo co pełny", () => {
+    // Basia 6h (norma 1312,5) wyrobiła 100 %, Ania 8h wyrobiła 50 % → 75 %.
+    expect(sredniProcentDni([
+      { norma: 1312.5, wykonano: 1312.5 },
+      { norma: 1750, wykonano: 875 },
+    ])).toBe(75);
+  });
+
+  it("dni bez normy (urlop, chorobowe) nie wchodzą do średniej", () => {
+    expect(sredniProcentDni([
+      { norma: 1750, wykonano: 1750 },
+      { norma: 0, wykonano: 0 },
+    ])).toBe(100);
+  });
+
+  it("dzień przepracowany bez produkcji liczy się jako 0 % i zaniża średnią", () => {
+    expect(sredniProcentDni([
+      { norma: 1750, wykonano: 1750 },
+      { norma: 1750, wykonano: 0 },
+    ])).toBe(50);
+  });
+
+  it("brak dni = 0 %, bez dzielenia przez zero", () => {
+    expect(sredniProcentDni([])).toBe(0);
+    expect(sredniProcentDni([{ norma: 0, wykonano: 0 }])).toBe(0);
+  });
+
+  it("nadwyżka ponad 100 % jest zachowana (premie)", () => {
+    expect(sredniProcentDni([
+      { norma: 1000, wykonano: 1200 },
+      { norma: 1000, wykonano: 1000 },
+    ])).toBe(110);
   });
 });

@@ -1,10 +1,10 @@
-import { Body, Controller, Delete, ForbiddenException, Get, Post, Query } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, Post, Query } from "@nestjs/common";
 import { Role } from "@prisma/client";
 import { Roles } from "../auth/decorators/roles.decorator";
 import { CurrentUser, type AuthUser } from "../auth/decorators/current-user.decorator";
 import { PrismaService } from "../prisma/prisma.service";
 import { NormsService } from "./norms.service";
-import { CreateEntryDto, CreateTaskDto, WorkerAttendanceDto } from "./dto";
+import { CreateEntryDto, CreateTaskDto, FinishForgottenShiftDto, WorkerAttendanceDto } from "./dto";
 
 /**
  * Endpointy pracownicy. ZASADA: żadna odpowiedź nie zawiera kwot, cen ani premii
@@ -102,23 +102,101 @@ export class WorkerController {
 
   // ─── Czas pracy („Zaczęłam pracę") ──────────────────────────────────
 
+  /**
+   * Stan licznika czasu pracy.
+   *
+   * Zmiana z POPRZEDNIEGO dnia nigdy nie jest „aktywna" — inaczej licznik po
+   * nocy pokazywałby kilkanaście godzin. Zwracamy ją osobno jako `forgotten`,
+   * a apka pyta pracownicę o godzinę zakończenia (nie zgadujemy jej, bo ktoś
+   * mógł zostać dłużej, żeby odrobić godziny).
+   */
   @Get("shift/current")
   async shiftCurrent(@CurrentUser() user: AuthUser) {
-    const s = await this.prisma.workSession.findFirst({
-      where: { employeeId: this.emp(user), endedAt: null },
+    const employeeId = this.emp(user);
+    const open = await this.prisma.workSession.findFirst({
+      where: { employeeId, endedAt: null },
       orderBy: { startedAt: "desc" },
     });
-    return { active: !!s, startedAt: s?.startedAt ?? null };
+    if (!open) return { active: false, startedAt: null, forgotten: null };
+    if (open.startedAt >= this.startOfToday()) {
+      return { active: true, startedAt: open.startedAt, forgotten: null };
+    }
+    return {
+      active: false,
+      startedAt: null,
+      forgotten: {
+        id: open.id,
+        startedAt: open.startedAt,
+        suggestedEnd: await this.sugerowanyKoniec(employeeId, open.startedAt),
+      },
+    };
   }
 
   @Post("shift/start")
   async shiftStart(@CurrentUser() user: AuthUser) {
     const employeeId = this.emp(user);
     await this.autoMarkWorkToday(employeeId);
+    // Zaległa zmiana z poprzedniego dnia domyka się szacunkiem po etacie —
+    // z flagą autoClosed, żeby admin wiedział, że to nie jest zmierzony czas.
+    await this.domknijZalegle(employeeId);
     const open = await this.prisma.workSession.findFirst({ where: { employeeId, endedAt: null } });
     if (open) return { startedAt: open.startedAt, alreadyActive: true };
     const s = await this.prisma.workSession.create({ data: { employeeId } });
     return { startedAt: s.startedAt };
+  }
+
+  /** Pracownica podaje godzinę, o której faktycznie skończyła zapomnianą zmianę. */
+  @Post("shift/finish-forgotten")
+  async finishForgotten(@CurrentUser() user: AuthUser, @Body() dto: FinishForgottenShiftDto) {
+    const employeeId = this.emp(user);
+    const session = await this.prisma.workSession.findFirst({
+      where: { id: dto.sessionId, employeeId, endedAt: null },
+    });
+    if (!session) throw new BadRequestException("Nie ma takiej niezakończonej zmiany");
+
+    const endedAt = new Date(dto.endedAt);
+    if (Number.isNaN(endedAt.getTime()) || endedAt <= session.startedAt) {
+      throw new BadRequestException("Godzina zakończenia musi być po godzinie rozpoczęcia");
+    }
+    if (endedAt.toDateString() !== session.startedAt.toDateString()) {
+      throw new BadRequestException("Godzina zakończenia musi być z tego samego dnia co rozpoczęcie");
+    }
+    await this.prisma.workSession.update({
+      where: { id: session.id },
+      data: { endedAt, autoClosed: false },
+    });
+    return {
+      ok: true,
+      minutes: Math.round((endedAt.getTime() - session.startedAt.getTime()) / 60000),
+    };
+  }
+
+  private startOfToday(): Date {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }
+
+  /** Koniec po etacie pracownicy, przycięty do końca dnia rozpoczęcia. */
+  private async sugerowanyKoniec(employeeId: string, startedAt: Date): Promise<Date> {
+    const emp = await this.prisma.employee.findUnique({ where: { id: employeeId } });
+    const godziny = emp ? Number(emp.defaultHours) : 8;
+    const koniec = new Date(startedAt.getTime() + godziny * 3600 * 1000);
+    const koniecDnia = new Date(startedAt);
+    koniecDnia.setHours(23, 59, 0, 0);
+    return koniec > koniecDnia ? koniecDnia : koniec;
+  }
+
+  private async domknijZalegle(employeeId: string): Promise<void> {
+    const zalegle = await this.prisma.workSession.findMany({
+      where: { employeeId, endedAt: null, startedAt: { lt: this.startOfToday() } },
+    });
+    for (const s of zalegle) {
+      await this.prisma.workSession.update({
+        where: { id: s.id },
+        data: { endedAt: await this.sugerowanyKoniec(employeeId, s.startedAt), autoClosed: true },
+      });
+    }
   }
 
   /**

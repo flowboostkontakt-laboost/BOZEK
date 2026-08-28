@@ -24,12 +24,19 @@ services:
         generateValue: true
       - key: JWT_REFRESH_SECRET
         generateValue: true
-      - key: AUTO_LOGOUT_HOUR
-        value: "18"
       - key: TZ
         value: Europe/Warsaw
+      # Rozpoznawanie produktu ze zdjęcia — Google AI Studio (Gemini API).
+      # AI_API_KEY jest sync:false, więc wpisuje się go RĘCZNIE w panelu Render
+      # (Environment). Bez klucza moduł zgłasza się jako wyłączony i nie zgaduje.
       - key: AI_PROVIDER
-        value: local
+        value: gemini
+      - key: AI_API_KEY
+        sync: false
+      - key: AI_EMBED_DIM
+        value: "768"
+      - key: AI_MATCH_THRESHOLD
+        value: "0.78"
       - key: WEB_ORIGIN
         value: https://bozek-web.onrender.com
       - key: PRESTASHOP_API_URL
