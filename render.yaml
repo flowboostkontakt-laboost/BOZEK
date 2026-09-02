@@ -1,10 +1,11 @@
-# Blueprint wdrożenia (Render.com) — baza + API + PWA jednym plikiem.
+# Blueprint wdrożenia (Render.com) — API + PWA jednym plikiem.
 # Na Render: New → Blueprint → wskaż repo BOZEK → Apply.
-databases:
-  - name: bozek-db
-    plan: free
-    postgresMajorVersion: "16"
-
+#
+# UWAGA: bazy CELOWO tu nie ma. Darmowy Postgres Rendera wygasł 4.08.2026
+# i został skasowany; produkcyjna baza stoi na Neonie (konto Vercel-managed).
+# Wcześniejszy wpis `fromDatabase: bozek-db` sprawiał, że każdy „Sync/Apply"
+# blueprintu nadpisywał DATABASE_URL adresem martwej bazy i kładł deploy
+# (ostatnio 2.09.2026).
 services:
   # ─── Backend API (NestJS, Docker) ───────────────────────────────
   - type: web
@@ -16,10 +17,12 @@ services:
     region: frankfurt
     healthCheckPath: /api/health
     envVars:
+      # DATABASE_URL wpisuje się RĘCZNIE w panelu (Environment): connection
+      # string Neona w wersji UNPOOLED (host bez „-pooler"), z panelu Vercela
+      # (Storage → baza → DATABASE_URL_UNPOOLED). `sync: false` gwarantuje,
+      # że blueprint nigdy go nie nadpisze.
       - key: DATABASE_URL
-        fromDatabase:
-          name: bozek-db
-          property: connectionString
+        sync: false
       - key: JWT_ACCESS_SECRET
         generateValue: true
       - key: JWT_REFRESH_SECRET

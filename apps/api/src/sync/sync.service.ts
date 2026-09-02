@@ -19,10 +19,21 @@ export class SyncService implements OnApplicationBootstrap {
     if (this.bootstrapSyncStarted || !this.ps.isConfigured()) return;
     this.bootstrapSyncStarted = true;
 
-    const [categories, products] = await Promise.all([
-      this.prisma.category.count(),
-      this.prisma.product.count(),
-    ]);
+    // Martwa baza NIE może przewrócić startu API (tryb awaryjny jak w
+    // PrismaService) — 2.09.2026 ten count() wywalił deploy, gdy DATABASE_URL
+    // wskazywał na skasowaną bazę. Bez bazy odpuszczamy synchronizację
+    // startową: o 03:00 spróbuje harmonogram, ręcznie zrobi to „Synchro Presta".
+    let categories = 0;
+    let products = 0;
+    try {
+      [categories, products] = await Promise.all([
+        this.prisma.category.count(),
+        this.prisma.product.count(),
+      ]);
+    } catch (e) {
+      this.log.warn(`Pomijam synchronizację startową — baza niedostępna: ${(e as Error).message}`);
+      return;
+    }
 
     if (categories > 0 && products > 0) return;
 
