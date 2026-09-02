@@ -40,25 +40,31 @@ function authHeaders(): HeadersInit {
  * Rownolegle zadania czekaja na te sama odnowe (jedno `inFlight`), zeby nie
  * uniewaznic sobie nawzajem tokenow — backend rotuje refresh przy kazdym uzyciu.
  */
-let odnawianie: Promise<boolean> | null = null;
+type WynikOdnowy = "ok" | "odrzucona" | "siec";
 
-async function odnowSesje(): Promise<boolean> {
+let odnawianie: Promise<WynikOdnowy> | null = null;
+
+async function odnowSesje(): Promise<WynikOdnowy> {
   const refreshToken = localStorage.getItem("refreshToken");
-  if (!refreshToken) return false;
-  odnawianie ??= (async () => {
+  if (!refreshToken) return "odrzucona";
+  odnawianie ??= (async (): Promise<WynikOdnowy> => {
     try {
       const res = await fetch(`${BASE}/auth/refresh`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ refreshToken }),
       });
-      if (!res.ok) return false;
+      // Wylogowac wolno tylko, gdy serwer JAWNIE odrzucil sesje. Blad 5xx
+      // (darmowy Render budzi sie ~1 min) czy brak zasiegu to nie powod,
+      // zeby wyrzucac pracownice do logowania.
+      if (res.status === 401 || res.status === 403) return "odrzucona";
+      if (!res.ok) return "siec";
       const data = (await res.json()) as { accessToken: string; refreshToken: string };
       localStorage.setItem("accessToken", data.accessToken);
       localStorage.setItem("refreshToken", data.refreshToken);
-      return true;
+      return "ok";
     } catch {
-      return false;
+      return "siec";
     } finally {
       // Zwolnienie zamka dopiero po zapisaniu tokenow.
       setTimeout(() => (odnawianie = null), 0);
@@ -71,6 +77,7 @@ async function odnowSesje(): Promise<boolean> {
 function wyloguj(): void {
   localStorage.removeItem("accessToken");
   localStorage.removeItem("refreshToken");
+  localStorage.removeItem("cachedUser");
   window.dispatchEvent(new Event("sesja-wygasla"));
 }
 
@@ -85,8 +92,10 @@ async function request<T>(path: string, init: RequestInit & { formData?: FormDat
 
   let res = await wyslij();
   if (res.status === 401 && !path.startsWith("/auth/")) {
-    if (await odnowSesje()) res = await wyslij();
-    else wyloguj();
+    const wynik = await odnowSesje();
+    if (wynik === "ok") res = await wyslij();
+    else if (wynik === "odrzucona") wyloguj();
+    // "siec": zostawiamy tokeny, zadanie konczy sie bledem — ponowi sie samo.
   }
   if (!res.ok) throw new Error(`API ${res.status}`);
   // 204 No Content (np. wylogowanie) nie ma ciala do sparsowania.

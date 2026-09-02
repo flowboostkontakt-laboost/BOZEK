@@ -53,8 +53,16 @@ export class AuthService {
     const user = await this.prisma.user.findUnique({ where: { id: stored.userId } });
     if (!user || !user.active) throw new UnauthorizedException("Konto nieaktywne");
 
-    // Rotacja: unieważnij stary refresh, wydaj nową parę.
-    await this.prisma.refreshToken.update({ where: { id: stored.id }, data: { revoked: true } });
+    // Rotacja z oknem łaski: stary refresh nie ginie od razu, tylko dogasa
+    // po 60 s. Na słabym zasięgu (telefon w pracowni) odpowiedź z nową parą
+    // tokenów potrafi nie dojść — ponowienie starym tokenem musi się jeszcze
+    // udać, inaczej pracownica ląduje na ekranie logowania w środku pracy.
+    // Twarde `revoked` zostaje dla wylogowania (logout unieważnia wszystko).
+    const koniecLaski = Math.min(stored.expiresAt.getTime(), Date.now() + 60_000);
+    await this.prisma.refreshToken.update({
+      where: { id: stored.id },
+      data: { expiresAt: new Date(koniecLaski) },
+    });
     return this.issueTokens(user.id, user.role, user.employeeId);
   }
 

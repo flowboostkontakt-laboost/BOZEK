@@ -30,21 +30,42 @@ function shape(u: MeResponse): AuthUser {
   return { ...u, name: u.employee?.name ?? u.login };
 }
 
+/**
+ * Profil trzymany lokalnie, zeby otwarcie apki nie zalezalo od pierwszego
+ * strzalu do API. Darmowy Render budzi sie ~1 min po bezczynnosci i przez
+ * ten czas /auth/me potrafi zwrocic 5xx — wczesniej apka kasowala wtedy
+ * tokeny i wyrzucala pracownice do logowania (uwaga klientki: „bardzo
+ * szybko wylogowuje"). Definitywne wygasniecie sesji (401 + odrzucona
+ * odnowa) obsluguje warstwa API zdarzeniem `sesja-wygasla`.
+ */
+function cachedUser(): AuthUser | null {
+  try {
+    const raw = localStorage.getItem("cachedUser");
+    return raw ? (JSON.parse(raw) as AuthUser) : null;
+  } catch {
+    return null;
+  }
+}
+
+function zapamietaj(u: AuthUser): void {
+  localStorage.setItem("cachedUser", JSON.stringify(u));
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<AuthUser | null>(null);
-  const [loading, setLoading] = useState(true);
+  const maToken = !!localStorage.getItem("accessToken");
+  const [user, setUser] = useState<AuthUser | null>(() => (maToken ? cachedUser() : null));
+  const [loading, setLoading] = useState(maToken && !user);
 
   useEffect(() => {
-    if (!localStorage.getItem("accessToken")) {
-      setLoading(false);
-      return;
-    }
+    if (!localStorage.getItem("accessToken")) return;
+    // Odswiezenie profilu w tle; blad sieci nie zmienia stanu zalogowania.
     apiGet<MeResponse>("/auth/me")
-      .then((u) => setUser(shape(u)))
-      .catch(() => {
-        localStorage.removeItem("accessToken");
-        localStorage.removeItem("refreshToken");
+      .then((u) => {
+        const su = shape(u);
+        zapamietaj(su);
+        setUser(su);
       })
+      .catch(() => void 0)
       .finally(() => setLoading(false));
   }, []);
 
@@ -63,13 +84,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     );
     localStorage.setItem("accessToken", res.accessToken);
     localStorage.setItem("refreshToken", res.refreshToken);
-    setUser(shape(res.user));
+    const su = shape(res.user);
+    zapamietaj(su);
+    setUser(su);
   };
 
   const logout = () => {
     apiPost("/auth/logout").catch(() => void 0);
     localStorage.removeItem("accessToken");
     localStorage.removeItem("refreshToken");
+    localStorage.removeItem("cachedUser");
     setUser(null);
   };
 
